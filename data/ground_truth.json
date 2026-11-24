@@ -1,0 +1,110 @@
+{
+ "seed": 42,
+ "monthly_net_spend": {
+  "2026-04": {
+   "Rent": 18000,
+   "Subscriptions": 898,
+   "Bills & Utilities": 2482,
+   "Food & Dining": 10939.5,
+   "Groceries": 8270.49,
+   "Transport": 6122.49,
+   "Shopping": 17024.5,
+   "Health": 1778.75,
+   "Entertainment": 889,
+   "Uncategorised": 4222.5,
+   "Cash Withdrawal": 5000
+  },
+  "2026-05": {
+   "Rent": 18000,
+   "Subscriptions": 898,
+   "Bills & Utilities": 2565,
+   "Food & Dining": 17688.24,
+   "Groceries": 10573.75,
+   "Transport": 6085.24,
+   "Uncategorised": 3903.98,
+   "Shopping": 15207.25,
+   "Health": 1094,
+   "Entertainment": 659,
+   "Cash Withdrawal": 5000
+  },
+  "2026-06": {
+   "Rent": 18000,
+   "Subscriptions": 898,
+   "Bills & Utilities": 3114,
+   "Food & Dining": 14221.24,
+   "Groceries": 8083.47,
+   "Uncategorised": 6035.74,
+   "Transport": 6347.99,
+   "Shopping": 15000,
+   "Health": 1134,
+   "Entertainment": 528,
+   "Cash Withdrawal": 2000
+  },
+  "2026-07": {
+   "Rent": 18000,
+   "Subscriptions": 898,
+   "Bills & Utilities": 2101.25,
+   "Food & Dining": 13845.74,
+   "Uncategorised": 4234.5,
+   "Groceries": 9838.99,
+   "Transport": 5674.75,
+   "Shopping": 16738.5,
+   "Health": 1116.75,
+   "Entertainment": 1135,
+   "Cash Withdrawal": 2000
+  },
+  "2026-08": {
+   "Rent": 18000,
+   "Subscriptions": 898,
+   "Bills & Utilities": 3039,
+   "Food & Dining": 15500.23,
+   "Uncategorised": 5911.75,
+   "Groceries": 10132.75,
+   "Transport": 6333.99,
+   "Shopping": 7066.5,
+   "Health": 977.5,
+   "Entertainment": 1085,
+   "Cash Withdrawal": 3000
+  },
+  "2026-09": {
+   "Rent": 18000,
+   "Subscriptions": 898,
+   "Bills & Utilities": 2017,
+   "Food & Dining": 14348.22,
+   "Groceries": 8351.75,
+   "Uncategorised": 5560.75,
+   "Transport": 7425,
+   "Shopping": 12804.75,
+   "Health": 372.5,
+   "Entertainment": 1074,
+   "Cash Withdrawal": 5000
+  },
+  "2026-10": {
+   "Rent": 18000,
+   "Subscriptions": 898,
+   "Bills & Utilities": 2401,
+   "Food & Dining": 13838.49,
+   "Uncategorised": 5020.73,
+   "Groceries": 9664.97,
+   "Transport": 4962,
+   "Shopping": 9852,
+   "Health": 616,
+   "Entertainment": 825,
+   "Cash Withdrawal": 2000
+  },
+  "2026-11": {
+   "Rent": 18000,
+   "Subscriptions": 898,
+   "Bills & Utilities": 2885,
+   "Food & Dining": 14347.99,
+   "Uncategorised": 4445,
+   "Groceries": 7982.5,
+   "Transport": 8161,
+   "Shopping": 20773.25,
+   "Health": 633.75,
+   "Entertainment": 1101,
+   "Cash Withdrawal": 5000,
+   "Travel": 28200
+  }
+ }
+}
