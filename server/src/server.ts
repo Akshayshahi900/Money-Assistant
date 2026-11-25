@@ -48,7 +48,7 @@ app.post<{ Body: { sessionId?: string; message: string } }>('/api/chat', async (
     const o = await handleChat(ctx, sid, req.body.message);
     sse(reply, 'text', { text: o.text });
     sse(reply, 'ui', o.ui);
-    sse(reply, 'done', { messageId: o.messageId, via: o.via, usage: o.usage ?? null, ms: Math.round(performance.now() - t0) });
+    sse(reply, 'done', { messageId: o.messageId, via: o.via, intent: o.intent, usage: o.usage ?? null, ms: Math.round(performance.now() - t0) });
   } catch (e) {
     console.error(e);
     sse(reply, 'ui', { type: 'notice', tone: 'error', text: 'Something went wrong. Please try again.' });

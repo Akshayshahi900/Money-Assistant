@@ -19,9 +19,9 @@ const monthsToReach = (price: number, perMonth: number) => (perMonth > 0 ? Math.
 
 export function computePlan(ctx: Ctx, item: string, price: number, targetMonth: string, monthlyIn?: number, status: "editing" | "done" = "editing"): Plan | ToolResult {
   const cur = ymOf(ctx.today), monthsLeft = monthsBetweenYM(cur, targetMonth);
-  if (!(price >= 1000 && price <= 100_000_000)) return notice("Tell me the price as an amount, e.g. “Can I afford an ₹80k phone by March?”");
+  if (!(price >= 1000 && price <= 100_000_000)) return notice("That price can't be planned yet. Check the amount and try again.");
   if (monthsLeft < 1) return notice("That month has already started or passed. Pick a month after this one.", "error");
-  if (monthsLeft > MAX_MONTHS) return notice(`I can plan up to ${MAX_MONTHS} months ahead. Try a nearer date.`, "error");
+  if (monthsLeft > MAX_MONTHS) return notice("That date is outside the planning window. Choose an earlier month.", "error");
 
   const p = resolvePeriod("last_3_months", ctx.today), s = monthlySurplus(ctx.db, p);
   const max = Math.ceil((s.avgIncome * 0.5) / 1000) * 1000;
@@ -61,8 +61,8 @@ export function planText(u: Plan): string {
 }
 
 export function planPurchase(ctx: Ctx, a: { item: string | null; price: number | null; target: string | null }): ToolResult {
-  if (a.price === null) return notice("Happy to check. What's the price? For example: “Can I afford an ₹80k phone by March?”");
-  if (a.target === null) return notice("By when do you want it? For example: “…by March” or “…in 6 months”.");
+  if (a.price === null) return notice("What price should I use? Tell me the amount in rupees.");
+  if (a.target === null) return notice("What month are you aiming for? You can give a calendar month or a relative date.");
   const r = computePlan(ctx, a.item || "purchase", a.price, a.target);
   return isPlan(r) ? { text: planText(r), ui: r } : r;
 }

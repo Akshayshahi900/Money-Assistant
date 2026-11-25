@@ -5,7 +5,7 @@
  * Output is always a validated {tool,args}; the router never produces user-visible numbers.
  */
 import { z } from 'zod';
-import { PeriodKey, parseTargetMonth, ymOf, addMonthsYM, DEFAULT_TODAY } from './dates';
+import { PeriodKey, parseTargetMonth, DEFAULT_TODAY } from './dates';
 import type { ItemKey } from './queries';
 import { llmRoute } from './llm';
 
@@ -66,7 +66,7 @@ const ITEM_WORDS: [RegExp, ItemKey][] = [
 export function parseGroup(msg: string) {
   const name = /(?:make|create|start|set up|build)\s+(?:me\s+)?(?:(?:a|an|the|new)\s+)*(.+?)\s+group\b/i.exec(msg)?.[1]?.trim() || 'New group';
   const withPart = /\bwith\s+(.+?)(?=\s+(?:and\s+)?(?:add|include|put)\b|[.!?]|$)/i.exec(msg)?.[1] ?? '';
-  const memberNames = withPart.split(/\s*(?:,|&|\band\b)\s*/i).map((x) => x.trim()).filter((x) => x.length >= 2).slice(0, 8);
+  const memberNames = withPart.split(/\s*(?:,|&|\band\b)\s*/i).map((x) => x.trim().replace(/[.!?;:]+$/, '')).filter((x) => x.length >= 2).slice(0, 8);
   const tail = /\b(?:add|include|put)\b(.*)$/i.exec(msg)?.[1] ?? msg;
   const items = ITEM_WORDS.filter(([re]) => re.test(tail)).map(([, k]) => k);
   return { groupName: name, memberNames, items, period: detectPeriod(msg, 'last_30_days') };
@@ -90,7 +90,7 @@ export function ruleRoute(msg: string, today = DEFAULT_TODAY): Route | null {
     const c = detectCategory(msg); if (c) return { tool: 'suggest_budget', args: { category: c } };
   }
   if (/\bbudget\b/.test(m)) { const c = detectCategory(msg); if (c) return { tool: 'suggest_budget', args: { category: c } }; }
-  if (/(where did my money go|where.*money.*go|spending (breakdown|summary)|how much (?:did|have) i spent|how much i spent|what (?:did|have) i spend|what is (?:the )?(?:total )?(?:money )?i spent|total (?:money )?i spent|breakdown)/.test(m))
+  if (/(where did my money go|where.*money.*go|show (?:me )?(?:my )?spending|spending (breakdown|summary)|how much did i spend|how much have i spent|how much i spent|what (?:did|have) i spend|what is (?:the )?(?:total )?(?:money )?i spent|total (?:money )?i spent|breakdown)/.test(m))
     return { tool: 'show_spending_breakdown', args: { period: detectPeriod(msg) } };
   return null;
 }
@@ -101,17 +101,10 @@ export const RouteArgs = {
   suggest_budget: z.object({ category: z.string() }),
   create_group: z.object({ groupName: z.string().min(1).max(40), memberNames: z.array(z.string().max(30)).max(8), items: z.array(z.enum(['hotel', 'cab', 'flight', 'food'])).max(4), period: PeriodEnum }),
   add_to_group: z.object({ query: z.string().min(2).max(30), period: PeriodEnum }),
-  plan_purchase: z.object({ item: z.string().max(30).optional(), month: z.number().int().min(1).max(12).optional(), inMonths: z.number().int().min(1).max(24).optional() }),
+  plan_purchase: z.object({ item: z.string().max(30).nullable().optional(), month: z.number().int().min(1).max(12).nullable().optional(), inMonths: z.number().int().min(1).max(24).nullable().optional() }),
 };
 
-/** LLM-supplied month number / relative months -> "YYYY-MM" (next occurrence). Prices are NEVER taken from the model. */
-function llmTarget(a: { month?: number; inMonths?: number }, today: string): string | null {
-  const cur = ymOf(today);
-  if (a.inMonths) return addMonthsYM(cur, a.inMonths);
-  if (a.month) { const y = Number(cur.slice(0, 4)), mm = String(a.month).padStart(2, '0'); return `${y}-${mm}` > cur ? `${y}-${mm}` : `${y + 1}-${mm}`; }
-  return null;
-}
-
+/** Model tool arguments select an intent; user amounts and target dates are parsed from the user's words only. */
 export async function route(msg: string, ctx: { today: string; categories: string[] }): Promise<{ route: Route; via: 'rules' | 'llm' | 'fallback'; usage?: { in: number; out: number } }> {
   const r = ruleRoute(msg, ctx.today);
   if (r) return { route: r, via: 'rules' };
@@ -122,15 +115,18 @@ export async function route(msg: string, ctx: { today: string; categories: strin
     return null;
   });
   if (l) {
-    if (l.tool === 'show_spending_breakdown') { const a = RouteArgs.show_spending_breakdown.safeParse(l.args); if (a.success) return { route: { tool: l.tool, args: a.data }, via: 'llm', usage: l.usage }; }
+    if (l.tool === 'show_spending_breakdown') { const a = RouteArgs.show_spending_breakdown.safeParse(l.args); if (a.success) return { route: { tool: l.tool, args: { period: detectPeriod(msg) } }, via: 'llm', usage: l.usage }; }
     if (l.tool === 'suggest_budget') { const a = RouteArgs.suggest_budget.safeParse(l.args); if (a.success && ctx.categories.includes(a.data.category)) return { route: { tool: l.tool, args: a.data }, via: 'llm', usage: l.usage }; }
     if (l.tool === 'create_group') { const a = RouteArgs.create_group.safeParse(l.args); if (a.success) return { route: { tool: l.tool, args: a.data }, via: 'llm', usage: l.usage }; }
     if (l.tool === 'add_to_group') { const a = RouteArgs.add_to_group.safeParse(l.args); if (a.success) return { route: { tool: l.tool, args: a.data }, via: 'llm', usage: l.usage }; }
     if (l.tool === 'investment_question') return { route: { tool: l.tool, args: {} }, via: 'llm', usage: l.usage };
     if (l.tool === 'plan_purchase') {
       const a = RouteArgs.plan_purchase.safeParse(l.args);
-      if (a.success) return { route: { tool: l.tool, args: { item: a.data.item?.toLowerCase() ?? parseItem(msg), price: parseAmount(msg), target: parseTargetMonth(msg, ctx.today) ?? llmTarget(a.data, ctx.today) } }, via: 'llm', usage: l.usage };
+      if (a.success) return { route: { tool: l.tool, args: { item: a.data.item?.toLowerCase() ?? parseItem(msg), price: parseAmount(msg), target: parseTargetMonth(msg, ctx.today) } }, via: 'llm', usage: l.usage };
+      console.warn('LLM plan_purchase arguments failed validation:', a.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; '));
     }
+    if (!['show_spending_breakdown', 'suggest_budget', 'create_group', 'add_to_group', 'investment_question', 'plan_purchase'].includes(l.tool)) console.warn(`LLM router returned unknown tool: ${l.tool}`);
+    else if (l.tool !== 'plan_purchase') console.warn(`LLM router arguments failed validation for ${l.tool}.`);
   }
   return { route: { tool: 'unsupported', args: {} }, via: 'fallback', usage: l?.usage };
 }

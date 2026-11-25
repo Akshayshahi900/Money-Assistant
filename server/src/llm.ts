@@ -78,7 +78,7 @@ export async function llmRoute(
       type: "function",
       function: {
         name: "create_group",
-        description: "User wants to create a shared expense group (e.g. a trip) with named people, optionally adding specific past transactions (hotel, cab, flight, food).",
+        description: "Call this when a user wants to make, create, organize, or start a shared expense group, trip cost pool, or expense pot with people. The user does not need to say the word group. Optionally include specific past transactions (hotel, cab, flight, food).",
         parameters: {
           type: "object",
           properties: {
@@ -112,8 +112,11 @@ export async function llmRoute(
           type: "object",
           properties: {
             item: { type: "string", description: "what they want to buy, e.g. phone" },
-            month: { type: "integer", description: "target calendar month 1-12 if named" },
-            inMonths: { type: "integer", description: "months from now if given relatively" },
+            // Groq's tool validator rejects explicit nulls when these are merely optional.
+            // Models commonly emit both fields with the unused one set to null, so declare
+            // null as valid and let deterministic server logic resolve the date.
+            month: { type: ["integer", "null"], description: "target calendar month 1-12 if named, otherwise null" },
+            inMonths: { type: ["integer", "null"], description: "months from now if given relatively, otherwise null" },
           },
         },
       },
@@ -128,7 +131,7 @@ export async function llmRoute(
     },
   ];
   const ac = new AbortController();
-  const timeoutMs = Math.max(1000, Number(process.env.LLM_TIMEOUT_MS ?? 10000));
+  const timeoutMs = Math.max(1000, Number(process.env.LLM_TIMEOUT_MS ?? 3500));
   const t = setTimeout(() => ac.abort(), timeoutMs);
   try {
     const res = await fetch(`${p.base}/chat/completions`, {
@@ -147,30 +150,33 @@ export async function llmRoute(
         messages: [
           {
             role: "system",
-            content: `You route a personal-finance assistant. Today is ${ctx.today}. Choose a tool whenever the request matches one of the available capabilities, even if phrased informally. For spending questions, select show_spending_breakdown and infer the requested period. For queries about a specific theme that is not a supported category, do not pretend a category exists. Never answer with numbers or prose.`,
+            content: `You route a personal-finance assistant. Today is ${ctx.today}. For every request matching a tool, call the matching tool; never answer with ordinary prose. For spending questions, select show_spending_breakdown and infer the requested period. For a request to organize, create, or start a shared expense pot, trip cost pool, or group with named people, call create_group even when the user never says "group"; extract the trip name, people, requested items, and period. For queries about a specific theme that is not a supported category, do not pretend a category exists. Never produce numbers or prose in a response.`,
           },
           { role: "user", content: msg },
         ],
       }),
     });
     if (!res.ok) {
-      console.warn(`LLM routing provider returned HTTP ${res.status}. Check the Groq model/API configuration.`);
+      const detail = (await res.text()).slice(0, 350);
+      console.warn(`LLM routing provider returned HTTP ${res.status}: ${detail}`);
       return null;
     }
     const j: any = await res.json();
+    const usage = {
+      in: j.usage?.prompt_tokens ?? 0,
+      out: j.usage?.completion_tokens ?? 0,
+    };
     const call = j.choices?.[0]?.message?.tool_calls?.[0];
     if (!call) {
       console.warn("LLM routing returned no tool call.");
-      return null;
+      return { tool: "", args: {}, usage };
     }
-    return {
-      tool: call.function.name,
-      args: JSON.parse(call.function.arguments || "{}"),
-      usage: {
-        in: j.usage?.prompt_tokens ?? 0,
-        out: j.usage?.completion_tokens ?? 0,
-      },
-    };
+    try {
+      return { tool: call.function.name, args: JSON.parse(call.function.arguments || "{}"), usage };
+    } catch {
+      console.warn("LLM routing returned malformed tool arguments.");
+      return { tool: "", args: {}, usage };
+    }
   } catch (err) {
     if (err instanceof Error && err.name === "AbortError") {
       console.warn(`LLM routing timed out after ${timeoutMs} ms (set LLM_TIMEOUT_MS to adjust).`);

@@ -7,7 +7,7 @@ import { guardText } from './grounding';
 import { route } from './router';
 import { safeSpec, ActionPayload, UiSpec } from './ui/spec';
 
-const UNSUPPORTED = 'I can show where your money went, suggest budgets, set up trip groups, plan a purchase, and explain what I can\'t advise on. Try "Where did my money go last month?", "I want to spend less on food", "Make a Goa trip group with Rahul and Priya", or "Can I afford an ₹80k phone by March?"';
+const UNSUPPORTED = 'I can help review spending, suggest a budget, set up a trip group, plan a purchase, or explain what I can help with instead of stock picks. Try asking about your spending, food budget, a trip group, or a purchase plan.';
 const now = () => new Date().toISOString();
 
 export function saveMessage(db: DatabaseSync, sid: string, role: 'user' | 'assistant' | 'action', text: string | null, ui: UiSpec | null): number {
@@ -25,7 +25,7 @@ function specOf(db: DatabaseSync, sid: string, id: number): UiSpec | null {
 /** Validate the spec and run the runtime number-provenance guard on the sentence. */
 function ready(r: ToolResult): ToolResult { const ui = safeSpec(r.ui); return { text: guardText(r.text, ui), ui }; }
 
-export interface ChatOutcome { text: string; ui: UiSpec; messageId: number; via: string; usage?: { in: number; out: number } }
+export interface ChatOutcome { text: string; ui: UiSpec; messageId: number; via: string; intent: string; usage?: { in: number; out: number } }
 
 export async function handleChat(ctx: Ctx, sid: string, message: string): Promise<ChatOutcome> {
   saveMessage(ctx.db, sid, 'user', message, null);
@@ -42,7 +42,7 @@ export async function handleChat(ctx: Ctx, sid: string, message: string): Promis
   }
   const { text, ui } = ready(out);
   const messageId = saveMessage(ctx.db, sid, 'assistant', text, ui);
-  return { text, ui, messageId, via: r.via, usage: r.usage };
+  return { text, ui, messageId, via: r.via, intent: r.route.tool, usage: r.usage };
 }
 
 type Msg = { messageId: number; text: string; ui: UiSpec };

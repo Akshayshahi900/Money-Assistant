@@ -7,7 +7,7 @@ interface Msg { id?: number; role: 'user' | 'assistant'; text: string | null; ui
 const SUGGESTIONS = [
   'Where did my money go last month?', 'I want to spend less on food.',
   "Make a Goa trip group with Rahul and Priya and add yesterday's hotel and cab.", 'Add the Swiggy ones to the group.',
-  'Can I afford an ₹80k phone by March?', 'Which stock should I buy?',
+  'Can I afford a phone by March?', 'Which stock should I buy?',
 ];
 
 function App() {
@@ -63,21 +63,37 @@ function App() {
 
   return (
     <div className="app">
-      <div className="row"><h1>Nance</h1>{msgs.length > 0 && <button className="btn" onClick={reset}>New chat</button>}</div>
-      {msgs.length === 0 && <div className="card"><b>Ask about your money</b><div className="btns" style={{ flexWrap: 'wrap' }}>{SUGGESTIONS.map((s) => <button key={s} className="btn" onClick={() => send(s)}>{s}</button>)}</div></div>}
-      {msgs.map((m, i) => (
-        <div key={m.id ?? `t${i}`} className={`msg ${m.role}`}>
-          {m.text && m.ui?.type !== 'choice_picker' && <div className="bubble">{m.text}</div>}
-          {m.pending && !m.ui && <div className="skeleton" aria-label="Loading" />}
-          {m.ui && <RenderUi spec={m.ui} onAction={(a) => act(m.id, a)} />}
-          {m.meta && <div className="sub meta">{m.meta}</div>}
-        </div>
-      ))}
+      <header className="topbar">
+        <a className="brand" href="#top" aria-label="Nance home"><span className="brand-mark">n</span><span>Nance</span></a>
+        <div className="topbar-right"><span className="demo-pill"><i /> Synthetic demo</span>{msgs.length > 0 && <button className="btn new-chat" onClick={reset}>＋ <span>New chat</span></button>}</div>
+      </header>
+      <main id="top" className="conversation">
+        {msgs.length === 0 ? <section className="welcome">
+          <div className="eyebrow"><span>✳</span> Your money, made clearer</div>
+          <h1>Good decisions start<br /><em>with a clearer picture.</em></h1>
+          <p className="welcome-copy">Ask a question or explore a plan. Nance turns your money data into clear, interactive next steps.</p>
+          <div className="prompt-heading">TRY ASKING</div>
+          <div className="prompt-grid">{SUGGESTIONS.map((s, i) => <button key={s} className="prompt-card" onClick={() => send(s)}><span className="prompt-icon">{['↗', '◒', '⌂', '⌕', '◷', '✳'][i]}</span><span>{s}</span><span className="prompt-arrow">↗</span></button>)}</div>
+          <div className="privacy-note"><span>◇</span> Sample data only · No real accounts connected</div>
+        </section> : <>
+          <div className="conversation-heading"><div><span className="eyebrow">MONEY ASSISTANT</span><h1>Your conversation</h1></div><span className="live-pill"><i /> Ready when you are</span></div>
+          {msgs.map((m, i) => (
+            <div key={m.id ?? `t${i}`} className={`msg ${m.role}`}>
+              {m.role === 'assistant' && <div className="speaker"><span className="mini-mark">n</span><span>Nance</span></div>}
+              {m.role === 'user' && <div className="speaker user-speaker">You</div>}
+              {m.text && m.ui?.type !== 'choice_picker' && <div className="bubble">{m.text}</div>}
+              {m.pending && !m.ui && <div className="skeleton" aria-label="Loading response" />}
+              {m.ui && <RenderUi spec={m.ui} onAction={(a) => act(m.id, a)} />}
+              {m.meta && <div className="sub meta">{m.meta}</div>}
+            </div>
+          ))}
+        </>}
+      </main>
       <div ref={bottom} />
-      <div className="input"><div>
-        <input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && send()} placeholder="Ask about your money…" aria-label="Message" />
-        <button className="btn primary" disabled={busy} onClick={() => send()}>Send</button>
-      </div></div>
+      <footer className="composer-wrap"><div className="composer">
+        <input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && send()} placeholder="Ask Nance anything about your money…" aria-label="Message Nance" />
+        <button className="send-btn" disabled={busy || !input.trim()} onClick={() => send()} aria-label="Send message">{busy ? <span className="send-spinner" /> : <span>↑</span>}</button>
+      </div><div className="composer-hint">Enter to send <span>·</span> Your data stays in this demo</div></footer>
     </div>
   );
 }

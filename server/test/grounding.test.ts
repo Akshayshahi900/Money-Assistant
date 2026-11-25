@@ -24,6 +24,13 @@ describe('number provenance: every number in every sentence exists in the data-b
       expect(o.text).not.toBe(SAFE_TEXT);                              // the runtime guard never had to step in
     }
   });
+  it('clarification and fallback notices do not inject canned amounts, dates, or counts', async () => {
+    for (const q of ['Can I afford a phone by March?', 'Can I afford an ₹80k phone?', 'Can I afford an ₹80k phone in 50 months?', 'tell me a joke']) {
+      const o = await handleChat(ctx, 's1', q);
+      expect(o.ui.type).toBe('notice');
+      expect(numbersIn(o.text), q).toEqual([]);
+    }
+  });
   it('holds for follow-up turns: drill-downs, adjustments, proposals, confirmations, the picker', async () => {
     const outs: { text: string; ui: any }[] = [];
     const take = (r: any) => { for (const m of [r.replace, r.append, ...(r.also ?? [])]) if (m) outs.push(m); };
@@ -86,6 +93,16 @@ describe('adversarial LLM: whatever the model says, user-visible numbers still c
       if (o.ui.type !== 'savings_plan') throw new Error(o.ui.type);
       expect(o.ui.price).toBe(50000);
       expect(o.ui.monthsLeft).toBe(6);
+    } finally { restore(); }
+  });
+  it('a target date returned by the model is ignored when the user did not provide one', async () => {
+    stub({ name: 'plan_purchase', args: { item: 'tablet', inMonths: 6 } });
+    try {
+      const o = await handleChat(ctx, 's1', 'I am thinking about a ₹50k tablet');
+      expect(o.via).toBe('llm');
+      expect(o.ui.type).toBe('notice');
+      expect(o.text).toBe('What month are you aiming for? You can give a calendar month or a relative date.');
+      expect(numbersIn(o.text)).toEqual([]);
     } finally { restore(); }
   });
   it('a model that invents a category, a bogus tool, or malformed args falls back safely', async () => {

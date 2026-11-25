@@ -14,7 +14,7 @@ export function investmentNote(ctx: Ctx): ToolResult {
       body: "Choosing what to buy or sell depends on your goals, time horizon and risk appetite, and it should come from a SEBI-registered investment adviser. What I can do is show how much room you have, based on your real numbers.",
       facts: [
         { label: `Average monthly surplus (${p.label})`, value: inr(s.avgSurplus) },
-        { label: "Emergency fund target (6 months of spending)", value: inr(round2(s.avgSpend * 6)) },
+        { label: "Emergency fund estimate (based on recent spending)", value: inr(round2(s.avgSpend * 6)) },
       ],
       points: [
         "What is the money for, and when will you need it?",

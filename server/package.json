@@ -6,7 +6,8 @@
     "seed": "tsx src/data/generate.ts",
     "dev": "tsx watch src/server.ts",
     "start": "tsx src/server.ts",
-    "test": "vitest run",
+    "test": "vitest run --no-file-parallelism",
+    "eval": "tsx eval/run.ts",
     "bench": "tsx bench/latency.mts",
     "bench:http": "node bench/http-latency.mjs",
     "typecheck": "tsc --noEmit"
