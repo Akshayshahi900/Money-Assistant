@@ -28,6 +28,22 @@ Stop the app with `Ctrl+C`. Docker Compose may leave the container running; use 
 
 The model can help route an unfamiliar request, but it does not write UI or financial figures. Deterministic server tools read the local SQLite data, build answers and typed UI specs, and validate them before the React client renders them. Changes are proposed as drafts and only saved after explicit confirmation. Conversation and in-progress UI state are stored so they survive refreshes.
 
+```mermaid
+flowchart LR
+    U[User request] --> R[Intent router]
+    R -->|common phrasing| T[Deterministic tool]
+    R -.->|optional fallback| M[Model tool call]
+    M --> T
+    T <--> DB[(SQLite data and session state)]
+    T --> S[Typed UI spec and answer]
+    S --> V[Zod validation]
+    V -->|SSE| C[React UI registry]
+    C -->|typed edit or action| H[Server action handler]
+    H --> T
+    H -->|confirm only| W[Transactional writer]
+    W --> DB
+```
+
 ## Develop
 
 Install dependencies in `server/` and `web/` separately with `npm install`. Seed the synthetic database, then run each development server in its own terminal:
@@ -57,8 +73,31 @@ Useful server commands (run from `server/`):
 
 The evaluator skips its LLM-only prompts if no provider key is configured. Set `EVAL_SKIP_LLM=1` to explicitly run only the deterministic subset.
 
+## Evaluation and benchmarks
+
+Recorded results from one full run (48 prompts, 2026-11-23, Groq `openai/gpt-oss-20b`):
+
+| Evaluation | Result |
+| --- | ---: |
+| Intent / UI type | 48 / 48 each |
+| Expected fields / numeric checkpoints | 368 / 368; 579 / 579 |
+| Model calls | 4 (44 routed by rules) |
+| Tokens / reported cost | 3,116 input + 226 output; $0.0003015 total |
+| Handler latency | 12.57 ms p50; 519.93 ms p95 |
+
+Local HTTP/SSE benchmark, 30 samples per scenario across the six rule-routed prompts:
+
+| Measure | p50 | p95 |
+| --- | ---: | ---: |
+| First SSE bytes | 2.8 ms | 5.3 ms |
+| Complete UI response | 4.0 ms | 6.0 ms |
+
+These are single-run local measurements, not availability or browser-paint guarantees. Rerun with `npm run eval` or `npm run bench:http` from `server/` (the latter requires the app running). The evaluator uses a temporary database clone; LLM-only prompts need a configured provider key.
+
 ## Data and scope
 
 `data/dataset.json` contains deterministic synthetic transactions for one fictional user. The seed database is generated locally; it contains no real financial data. Relative dates default to `2026-11-23` so examples and evaluation are reproducible; override with `CURRENT_DATE` when needed.
 
 This prototype is English-only and has no authentication, bank connections, or multi-user permissions. Group visibility is global in the prototype, so it is intended for local evaluation rather than shared or production use.
+
+Savings projections assume no existing goal savings and estimate surplus from recent average income minus spend; they are not an affordability guarantee. Group matching is limited to a bounded period and keyword window, and expense splits are equal-only. Unsupported or missing dates and amounts prompt for clarification. If optional model routing fails, the assistant falls back to a notice.
