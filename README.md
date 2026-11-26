@@ -1,133 +1,64 @@
-# Nance: Generative-UI money assistant (prototype)
+# Nance
 
-Ask a money question in plain language; get a short answer **plus an interactive UI** (chart, form, picker, confirmation card) whose numbers always come from the data. What you do in the UI goes back to the server as **structured actions**, never as invented chat text.
+Nance is a prototype money assistant that turns plain-language requests into short answers and interactive, data-backed UI. It uses a synthetic transaction history; it does not connect to banks or provide investment picks.
 
-All six assignment scenarios have an end-to-end path. Common versions use the deterministic router; the evaluation set also has LLM-only phrasings that require a configured, reachable model endpoint.
+## Try it
 
-| # | User says | UI the assistant draws |
-|---|---|---|
-| 1 | "Where did my money go last month?" | category breakdown, tap a category to drill into its transactions |
-| 2 | "I want to spend less on food." | budget editor (history chart + slider) → confirm card → saved budget |
-| 3 | "Make a Goa trip group with Rahul and Priya and add yesterday's hotel and cab." | pre-filled group builder (people, transactions, equal split) → confirm card → saved group |
-| 4 | "Can I afford an ₹80k phone by March?" | savings plan: change the monthly amount or the target month and the result updates → "Save as goal" → confirm |
-| 5 | "Add the Swiggy ones to the group." | a **picker** (19 matches across 3 Swiggy merchants, none pre-selected) → confirm |
-| 6 | "Which stock should I buy?" | polite decline + facts from your data (surplus, emergency-fund target) + follow-up button |
-
-**Why all six, not four:** 3 and 5 are one mechanism (draft → edit → confirm) and 5 is the "don't guess" counterpart of 3; 4 is the only scenario that needs a live what-if; 6 is cheap and shows refusal handled as UI. Depth was not traded away: each has tests for the happy path, hostile input, and refresh.
-
-## Run it
+Requirements: Docker and Docker Compose.
 
 ```bash
-cp .env.example .env            # no model key needed for the six common scenarios
-docker compose up --build       # single command; app on http://localhost:3000
+cp .env.example .env
+docker compose up --build
 ```
 
-Optional LLM routing: set **one** of `GROQ_API_KEY` or `GEMINI_API_KEY` in `.env`; `LLM_MODEL` and `LLM_TIMEOUT_MS` are optional. No key is needed for the deterministic scenario routes. `CURRENT_DATE` defaults to `2026-11-23`, pinned for reproducible relative dates.
+Open [http://localhost:3000](http://localhost:3000). The six common demo flows work without an API key. To enable model routing for less common phrasing, add either `GROQ_API_KEY` or `GEMINI_API_KEY` to `.env`, then restart the container.
 
-For development, install `server/` and `web/` dependencies separately, run `npm run seed` and `npm test` in `server/`, then start `npm run dev` in both directories. The Vite server on `:5173` proxies API requests to `:3000`.
+Try asking:
 
-## Architecture and UI generation
+- “Where did my money go last month?”
+- “I want to spend less on food.”
+- “Make a Goa trip group with Rahul and Priya and add yesterday’s hotel and cab.”
+- “Can I afford an ₹80k phone by March?”
+- “Add the Swiggy ones to the group.”
+- “Which stock should I buy?”
 
-**The model never writes UI or numbers. It only chooses.**
+Stop the app with `Ctrl+C`. Docker Compose may leave the container running; use `docker compose down` to stop and remove it.
 
+## How it works
+
+The model can help route an unfamiliar request, but it does not write UI or financial figures. Deterministic server tools read the local SQLite data, build answers and typed UI specs, and validate them before the React client renders them. Changes are proposed as drafts and only saved after explicit confirmation. Conversation and in-progress UI state are stored so they survive refreshes.
+
+## Develop
+
+Install dependencies in `server/` and `web/` separately with `npm install`. Seed the synthetic database, then run each development server in its own terminal:
+
+```bash
+cd server
+npm run seed
+npm run dev
 ```
-user text ──► router ──► tool (pure code) ──► { text, ui spec }  ──► zod validation ──► SSE ──► React registry
-              rules first (0 ms)                reads SQLite            (typed catalog)          type → component
-              LLM tool-call fallback            builds sentence from
-              (enum args, zod-checked)          a template + the data
+
+```bash
+cd web
+npm run dev
 ```
 
-UI actions travel back as typed action payloads to deterministic server handlers; they are not converted into pretend chat messages. SQLite stores the transcript, drafts, and pending writes.
+Open [http://localhost:5173](http://localhost:5173). Vite proxies API requests to the server on port 3000. To set model routing or a different date for local development, export `GROQ_API_KEY` or `GEMINI_API_KEY` and optionally `CURRENT_DATE` in the server's shell before starting it.
 
-* **A typed UI catalog** (`server/src/ui/spec.ts`): `spending_breakdown`, `transaction_list`, `budget_editor`, `group_builder`, `choice_picker`, `savings_plan`, `confirm_card`, `info_card`, `notice`. Each is a zod schema. A tool returns one; invalid specs degrade to a `notice` and never reach the client as-is.
-* **One registry on the client** (`web/src/registry.tsx`): `spec.type` → React component. Types are imported from the server schema (type-only), so server and client cannot drift. Adding a UI = one schema + one component.
-* **Intent and slots:** deterministic rules recognize common asks and parse typed slots first. Spend requests go through one `spend_summary` query with an explicit period and optional merchant, category, payment-mode, and account filters. Missing periods ask a question; fully out-of-range periods show no total; partially covered periods show the available range and label the total partial; unknown merchants are reported. Unmatched phrasing can use an optional LLM tool call, but the server reparses and validates the slots against the user's words and local data.
-* **Rendering:** tools return a discriminated UI spec from `server/src/ui/spec.ts`; Zod validates it, SSE streams it, and `web/src/registry.tsx` maps the `type` to a React component. The same schema supplies client types, so the UI contract has one source of truth.
-* **Why this approach:** letting a model return JSX would make it harder to validate the UI, keep styling consistent, and keep invented values out of the interface. A typed catalog keeps the model's role narrow and makes number provenance auditable. The tradeoff is that each new UI needs a schema and component.
+Useful server commands (run from `server/`):
 
-## Human in the loop
+| Command | Purpose |
+| --- | --- |
+| `npm test` | Run the test suite |
+| `npm run typecheck` | Check TypeScript types |
+| `npm run eval` | Evaluate prompts against expected intents, UI, and data |
+| `npm run bench` | Profile in-process query latency |
+| `npm run bench:http` | Measure HTTP/SSE response latency (requires the server running) |
 
-* Every UI interaction is a **zod-validated action** (`ActionPayload`): `drill_down`, `update_group`, `update_choice`, `adjust_plan`, `propose_*`, `confirm`, `cancel`, ...
-* **The assistant continues from what the user did.** Untick the cab and the total and split are recomputed on the server and the card is replaced in place; move the date to June and the plan, verdict and chart update.
-* **Writes need explicit confirmation.** Tools can only *propose*: they store a draft in `pending_actions` and return a confirm card. The single writer is `resolvePending()` (`server/src/pending.ts`), reached only by a `confirm` action. It is transactional, **idempotent** (double-click = one write), **session-scoped**, and re-validates ids at commit time. Re-proposing from the same editor supersedes the earlier proposal, so a stale card can't be confirmed.
-* **The client is never trusted with data.** It sends *ids and a month/amount only*. Names, amounts, totals and splits are re-read from the DB; ids that were never offered are dropped; amounts are clamped.
-* **Refresh survives mid-task.** Transcript *and* in-progress editors are stored server-side in `messages.ui_json` and updated in place on every edit; confirm cards show live status from the DB. Confirming locks the editor it came from.
-* **Chat edits and UI edits share state.** The active purchase plan is stored in SQLite `session_state`. A chat what-if and a slider change both call `computePlan()` and update the same active plan; refresh reloads both the transcript and the plan state.
-* **Manual entries are gated.** A chat request to add an amount creates a pending manual-expense proposal. The entry and a missing group are written only when the user confirms; the pending applier is transactional and idempotent.
-* **Errors never destroy an editor** (an invalid date appends a notice; the plan stays editable).
+The evaluator skips its LLM-only prompts if no provider key is configured. Set `EVAL_SKIP_LLM=1` to explicitly run only the deterministic subset.
 
-## Preventing wrong numbers
+## Data and scope
 
-**Design (structural, not a prompt):**
-1. Financial values come from database queries and deterministic calculations. "What counts as spending" is defined in the `spend_events` SQL view (excludes own-account transfers, card-bill payments, wallet loads, duplicate postings; nets refunds and reversals).
-2. Sentences are **templates filled from query results**. The LLM never produces assistant text, so it has no channel to inject a figure.
-3. UI specs carry numbers as numeric fields; the browser only formats them (INR grouping).
-4. Splits use integer paise so shares sum exactly (₹19,850 ÷ 3 → ₹6,616.66 + ₹6,616.66 + ₹6,616.68).
-5. **Runtime provenance guard** (`grounding.ts`): every numeric token in a sentence must also exist in the data-built UI payload, else the sentence is replaced by a neutral one and logged. Purchase prices and target dates are parsed from the user's words by code; if either is missing, the assistant asks instead of accepting a model-supplied value.
+`data/dataset.json` contains deterministic synthetic transactions for one fictional user. The seed database is generated locally; it contains no real financial data. Relative dates default to `2026-11-23` so examples and evaluation are reproducible; override with `CURRENT_DATE` when needed.
 
-**Verification (`npm test`: 84 tests):**
-* **Independent oracle.** The seed generator writes `ground_truth.json` from the *intended* purchases before messy rows are injected. Per-month, per-category totals from the SQL views are compared to it for all 8 months. The Goa total (₹18,400 + ₹1,450 = ₹19,850) and the phone-plan surplus are recomputed in plain JS from `dataset.json`, bypassing the views.
-* **Provenance scan** over every scenario output *and* every follow-up (drill-downs, 5 slider values, group edits, confirmations, picker, plan adjustments), asserting no numeric token is ungrounded **and that the runtime guard never had to intervene**. A negative control proves the checker really catches an invented number.
-* **Adversarial LLM:** a stubbed model answers with "You spent ₹1,23,456", injected `total`/`amount` args, an invented category, a bogus tool, malformed args, a `price: 1` for a ₹50k item, and a network outage. None of it reaches the user; amounts are recomputed and the price comes from the user's text.
-* **Hostile input:** malformed/oversized actions, foreign ids, NaN/∞/negative amounts, SQL-ish text in names and search terms: no crash, no write, DB intact.
-* **Reported regressions:** merchant/month out-of-range, known merchant with zero spend, unknown merchant, this-week and last-7-days summaries, active-plan chat edits after goal confirmation, persisted state, injected balance claims, confirmation bypass requests, missing/existing group cases, pasted SMS instructions, and double-confirm idempotency.
-
-## Prompt evaluation
-
-`server/eval/prompts.json` contains 48 prompts: common phrasings, ambiguous transaction requests, missing/invalid purchase details, investment questions, four phrasings intended to exercise LLM routing, and the new F1–F4 correctness regressions. Each prompt names an expected intent, UI type, and numeric/data-field profile. Profiles contain exact expected values (including filtered spend totals, category amounts and percentages, confirmation entries, account ledger balances, and savings projections) from the seeded synthetic dataset. F2 is evaluated as a multi-turn flow: create the plan, confirm it, then send the chat what-if.
-
-Run `cd server && npm run seed && npm run eval`. The evaluator clones the seed database into a temporary file, creates its group fixture there, and removes the clone afterward; evaluation writes do not touch the working database. Without an LLM key, the four LLM-only prompts are reported as skipped. To include them, set `GROQ_API_KEY` or `GEMINI_API_KEY`; use `EVAL_SKIP_LLM=1` to explicitly run only the deterministic subset when provider access is unavailable. `.env.example` includes the published Groq rates for the default `openai/gpt-oss-20b` model: **$0.075 / million input tokens and $0.30 / million output tokens** ([Groq model pricing](https://console.groq.com/docs/model/openai/gpt-oss-20b)). Update those variables if you choose another model/provider. Rule-routed calls have zero model cost.
-
-The report includes intent and UI accuracy, exact expected-field checks, numeric checkpoint accuracy, p50/p95 handler latency, token totals, and average request cost. Handler latency includes routing (and a configured model request), queries and spec validation, but excludes HTTP/browser time; use `npm run bench:http` for end-to-end SSE latency. Numeric checkpoints target displayed financial values and category percentages. Exact field checks also cover dates, selected items and transaction details. With LLM prompts enabled, scores reflect the model's actual tool choices rather than a stub.
-
-Latest full run (48 prompts, fixed date 2026-11-23, Groq `openai/gpt-oss-20b`): **48/48 intent**, **48/48 UI type**, **368/368 expected fields**, and **579/579 numeric checkpoints** matched. The run made four model calls (the other 44 prompts took deterministic paths), used 3,116 input and 226 output tokens, and cost **$0.0003015 USD total**, or **$0.00000628 per prompt** at the published rates above. Handler latency was **12.57 ms p50 / 519.93 ms p95**; the four LLM-only prompts were **519.93 ms p50 / 938.49 ms p95**. This is one successful run, not a claim of stable provider availability.
-
-*Honest limit:* the guard checks that numbers *exist in the payload*, not that they are *relevant*. Correctness of the payload itself rests on the oracle tests above. The checker also doesn't understand units, so "6 months" and "₹6" would look alike.
-
-## Latency and responsiveness
-
-Targets: first visible response < 1 s, complete UI ≤ 5 s. The server streams SSE: a `placeholder` event is written **before routing and database work** (the client shows a skeleton), then `text`, `ui`, `done`. The LLM call has a 3.5 s timeout and falls back to a fixed notice. The common scenario phrasings use rules and do not wait on an LLM.
-
-**Measured end-to-end over local HTTP/SSE:** 30 sequential samples per scenario, Node 26.13.1, six common rule-routed prompts, isolated copy of the synthetic database. “First” is receipt of the first SSE bytes (a server-side proxy for the placeholder; actual browser paint is not instrumented); “full” is receipt of the `done` event. The client displays a local skeleton immediately when the user submits. The server also logs `firstResponseMs` and `completeUiMs` per request.
-
-| scenario | first p50 ms | first p95 ms | full p50 ms | full p95 ms |
-|---|---:|---:|---:|---:|
-| spending breakdown | 3.7 | 8.9 | 4.0 | 9.6 |
-| food budget | 2.9 | 4.5 | 3.4 | 5.3 |
-| Goa group draft | 2.6 | 3.7 | 4.3 | 6.1 |
-| phone savings plan | 2.4 | 8.5 | 5.2 | 11.3 |
-| Swiggy picker | 2.3 | 3.3 | 2.5 | 3.8 |
-| investment refusal | 2.7 | 3.6 | 3.9 | 5.3 |
-| **all six** | **2.8** | **5.3** | **4.0** | **6.0** |
-
-All six rule-routed prompts met both latency targets: aggregate first-response p95 was **5.3 ms**, and complete-UI p95 was **6.0 ms**. Model-inclusive handler latency is reported separately in the evaluation above. These are local HTTP measurements; browser paint remains uninstrumented and another machine/network will differ.
-
-`npm run bench` is available for in-process query profiling. It excludes HTTP, browser paint, and LLM routing. `npm run bench:http` measures the first SSE response and complete response for the six rule-routed prompts; pass `LLM=1` with a reachable API key to include all four LLM-only evaluation phrasings and report their p50/p95 separately.
-
-## Data
-
-`data/dataset.json`: one synthetic user, **633 transactions**, 3 accounts (savings, credit card, wallet), 5 contacts, **8 months** (Apr–Nov 2026). Accounts include fake opening balances so the injection demo can calculate ledger balances from opening values plus posted transactions; the credit card is shown as an amount due. These are generated fixture values, not real balances. Deliberately messy: duplicate postings, card-bill and wallet-load transfers (two legs), refunds, a failed-UPI reversal, friends' repayments (credits that are *not* income), ~4% missing categories, merchants with no name, and plain-text cash withdrawals. Seed is deterministic (`SEED=42`; verified byte-identical on re-seed). No real data.
-
-## Limits / what I'd do next
-
-### Known failure cases
-
-* Unusual wording depends on the optional LLM tier. If its endpoint is unreachable, rate-limited, or returns an invalid tool call, the assistant falls back to a generic notice. The full evaluation did validate all four LLM-only prompts in one successful run; later stress samples were limited by the provider's free-tier TPM quota.
-* Date and amount extraction is deliberately narrow. Relative dates such as “by March” and “in 6 months” work; unsupported date language asks for clarification. Missing a price or date returns a question instead of a projection.
-* Group matching searches the requested period and a limited keyword window, not arbitrary transaction history. Multiple matching hotels/cabs remain unselected; expense splits are equal-only.
-* Savings projections assume no amount has been saved specifically for the goal and one deposit per month starting next month; account balances are not automatically earmarked. The “surplus” estimate is recent average income minus spend, not an affordability guarantee. Displayed ledger balances depend on synthetic opening balances plus the available transaction history, not a live bank connection.
-* One synthetic user, English only, no authentication. Groups are global in this prototype; sessions scope drafts and confirmations, not group visibility.
-
-### Deliberately left out
-
-* **Bank connections and real financial data:** excluded to keep this standalone evaluation synthetic and avoid transmitting sensitive information.
-* **Authentication and multi-user permissions:** not needed for the assignment's single-user prototype; add them before any shared or production deployment.
-* **Model-written JSX and free-form financial answers:** excluded so the model cannot control UI structure or financial values. New UI types require code and schema changes.
-* **Flexible group search, custom splits, and recurring budgets:** excluded to keep transaction selection and writes reviewable within the time-boxed scenarios.
-* **Live bank balances, existing goal savings, debt obligations, and future cash-flow simulation:** excluded because this prototype has synthetic opening balances and transaction history only, not a bank connection or observed savings earmarked to goals.
-* **Personalized investment picks:** deliberately not offered; the assistant declines stock recommendations and offers data-grounded budgeting context instead.
-* **Voice and additional languages:** omitted because the assignment evaluates text interactions in English.
-
-## Demo recording
-
-The end-to-end flows can be demonstrated locally using the six prompts in the scenario table. Record a 3–5 minute screen capture showing a spending drill-down, budget edit and confirmation, trip-group review and confirmation, savings-plan adjustment, ambiguous Swiggy picker, and stock-advice refusal. Include a refresh while an editor or confirmation card is open. A recording is not included in this repository because this execution environment has no available browser surface or screen-capture tool; the application itself is runnable with the command above.
+This prototype is English-only and has no authentication, bank connections, or multi-user permissions. Group visibility is global in the prototype, so it is intended for local evaluation rather than shared or production use.
