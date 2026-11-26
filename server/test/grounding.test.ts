@@ -75,7 +75,7 @@ describe('adversarial LLM: whatever the model says, user-visible numbers still c
   it('model prose and injected numeric args never reach the user; amounts are recomputed', async () => {
     stub({ name: 'show_spending_breakdown', args: { period: 'last_month', total: 123456, amount: 999999 } });
     try {
-      const o = await handleChat(ctx, 's1', 'I keep wondering how my cash flow looked recently');
+      const o = await handleChat(ctx, 's1', 'I keep wondering how my cash flow looked last month');
       const truth = spendByCategory(ctx.db, resolvePeriod('last_month', ctx.today));
       expect(o.via).toBe('llm');
       if (o.ui.type !== 'spending_breakdown') throw 0;

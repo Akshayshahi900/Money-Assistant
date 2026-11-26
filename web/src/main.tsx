@@ -81,7 +81,7 @@ function App() {
             <div key={m.id ?? `t${i}`} className={`msg ${m.role}`}>
               {m.role === 'assistant' && <div className="speaker"><span className="mini-mark">n</span><span>Nance</span></div>}
               {m.role === 'user' && <div className="speaker user-speaker">You</div>}
-              {m.text && m.ui?.type !== 'choice_picker' && <div className="bubble">{m.text}</div>}
+              {m.text && m.ui?.type !== 'choice_picker' && !(m.ui?.type === 'notice' && m.ui.text === m.text) && <div className="bubble">{m.text}</div>}
               {m.pending && !m.ui && <div className="skeleton" aria-label="Loading response" />}
               {m.ui && <RenderUi spec={m.ui} onAction={(a) => act(m.id, a)} />}
               {m.meta && <div className="sub meta">{m.meta}</div>}

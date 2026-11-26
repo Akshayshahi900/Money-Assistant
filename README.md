@@ -41,7 +41,7 @@ UI actions travel back as typed action payloads to deterministic server handlers
 
 * **A typed UI catalog** (`server/src/ui/spec.ts`): `spending_breakdown`, `transaction_list`, `budget_editor`, `group_builder`, `choice_picker`, `savings_plan`, `confirm_card`, `info_card`, `notice`. Each is a zod schema. A tool returns one; invalid specs degrade to a `notice` and never reach the client as-is.
 * **One registry on the client** (`web/src/registry.tsx`): `spec.type` → React component. Types are imported from the server schema (type-only), so server and client cannot drift. Adding a UI = one schema + one component.
-* **Intent choice:** deterministic rules recognize the assignment's common asks without a network call. If a rule does not match, an optional LLM chooses from tool calls with constrained arguments. The server validates the choice and arguments; unknown categories and invalid tool calls fall back to a notice.
+* **Intent and slots:** deterministic rules recognize common asks and parse typed slots first. Spend requests go through one `spend_summary` query with an explicit period and optional merchant, category, payment-mode, and account filters. Missing periods ask a question; fully out-of-range periods show no total; partially covered periods show the available range and label the total partial; unknown merchants are reported. Unmatched phrasing can use an optional LLM tool call, but the server reparses and validates the slots against the user's words and local data.
 * **Rendering:** tools return a discriminated UI spec from `server/src/ui/spec.ts`; Zod validates it, SSE streams it, and `web/src/registry.tsx` maps the `type` to a React component. The same schema supplies client types, so the UI contract has one source of truth.
 * **Why this approach:** letting a model return JSX would make it harder to validate the UI, keep styling consistent, and keep invented values out of the interface. A typed catalog keeps the model's role narrow and makes number provenance auditable. The tradeoff is that each new UI needs a schema and component.
 
@@ -52,6 +52,8 @@ UI actions travel back as typed action payloads to deterministic server handlers
 * **Writes need explicit confirmation.** Tools can only *propose*: they store a draft in `pending_actions` and return a confirm card. The single writer is `resolvePending()` (`server/src/pending.ts`), reached only by a `confirm` action. It is transactional, **idempotent** (double-click = one write), **session-scoped**, and re-validates ids at commit time. Re-proposing from the same editor supersedes the earlier proposal, so a stale card can't be confirmed.
 * **The client is never trusted with data.** It sends *ids and a month/amount only*. Names, amounts, totals and splits are re-read from the DB; ids that were never offered are dropped; amounts are clamped.
 * **Refresh survives mid-task.** Transcript *and* in-progress editors are stored server-side in `messages.ui_json` and updated in place on every edit; confirm cards show live status from the DB. Confirming locks the editor it came from.
+* **Chat edits and UI edits share state.** The active purchase plan is stored in SQLite `session_state`. A chat what-if and a slider change both call `computePlan()` and update the same active plan; refresh reloads both the transcript and the plan state.
+* **Manual entries are gated.** A chat request to add an amount creates a pending manual-expense proposal. The entry and a missing group are written only when the user confirms; the pending applier is transactional and idempotent.
 * **Errors never destroy an editor** (an invalid date appends a notice; the plan stays editable).
 
 ## Preventing wrong numbers
@@ -63,21 +65,22 @@ UI actions travel back as typed action payloads to deterministic server handlers
 4. Splits use integer paise so shares sum exactly (₹19,850 ÷ 3 → ₹6,616.66 + ₹6,616.66 + ₹6,616.68).
 5. **Runtime provenance guard** (`grounding.ts`): every numeric token in a sentence must also exist in the data-built UI payload, else the sentence is replaced by a neutral one and logged. Purchase prices and target dates are parsed from the user's words by code; if either is missing, the assistant asks instead of accepting a model-supplied value.
 
-**Verification (`npm test`: 71 tests):**
+**Verification (`npm test`: 84 tests):**
 * **Independent oracle.** The seed generator writes `ground_truth.json` from the *intended* purchases before messy rows are injected. Per-month, per-category totals from the SQL views are compared to it for all 8 months. The Goa total (₹18,400 + ₹1,450 = ₹19,850) and the phone-plan surplus are recomputed in plain JS from `dataset.json`, bypassing the views.
 * **Provenance scan** over every scenario output *and* every follow-up (drill-downs, 5 slider values, group edits, confirmations, picker, plan adjustments), asserting no numeric token is ungrounded **and that the runtime guard never had to intervene**. A negative control proves the checker really catches an invented number.
 * **Adversarial LLM:** a stubbed model answers with "You spent ₹1,23,456", injected `total`/`amount` args, an invented category, a bogus tool, malformed args, a `price: 1` for a ₹50k item, and a network outage. None of it reaches the user; amounts are recomputed and the price comes from the user's text.
 * **Hostile input:** malformed/oversized actions, foreign ids, NaN/∞/negative amounts, SQL-ish text in names and search terms: no crash, no write, DB intact.
+* **Reported regressions:** merchant/month out-of-range, known merchant with zero spend, unknown merchant, this-week and last-7-days summaries, active-plan chat edits after goal confirmation, persisted state, injected balance claims, confirmation bypass requests, missing/existing group cases, pasted SMS instructions, and double-confirm idempotency.
 
 ## Prompt evaluation
 
-`server/eval/prompts.json` contains 40 prompts: common phrasings, ambiguous transaction requests, missing/invalid purchase details, investment questions, and four phrasings intended to exercise LLM routing. Each prompt names an expected intent, UI type, and numeric/data-field profile. Profiles contain exact expected values (including full category amounts and percentages, candidate transaction amounts and dates, and savings projections) from the seeded synthetic dataset.
+`server/eval/prompts.json` contains 48 prompts: common phrasings, ambiguous transaction requests, missing/invalid purchase details, investment questions, four phrasings intended to exercise LLM routing, and the new F1–F4 correctness regressions. Each prompt names an expected intent, UI type, and numeric/data-field profile. Profiles contain exact expected values (including filtered spend totals, category amounts and percentages, confirmation entries, account ledger balances, and savings projections) from the seeded synthetic dataset. F2 is evaluated as a multi-turn flow: create the plan, confirm it, then send the chat what-if.
 
 Run `cd server && npm run seed && npm run eval`. The evaluator clones the seed database into a temporary file, creates its group fixture there, and removes the clone afterward; evaluation writes do not touch the working database. Without an LLM key, the four LLM-only prompts are reported as skipped. To include them, set `GROQ_API_KEY` or `GEMINI_API_KEY`; use `EVAL_SKIP_LLM=1` to explicitly run only the deterministic subset when provider access is unavailable. `.env.example` includes the published Groq rates for the default `openai/gpt-oss-20b` model: **$0.075 / million input tokens and $0.30 / million output tokens** ([Groq model pricing](https://console.groq.com/docs/model/openai/gpt-oss-20b)). Update those variables if you choose another model/provider. Rule-routed calls have zero model cost.
 
 The report includes intent and UI accuracy, exact expected-field checks, numeric checkpoint accuracy, p50/p95 handler latency, token totals, and average request cost. Handler latency includes routing (and a configured model request), queries and spec validation, but excludes HTTP/browser time; use `npm run bench:http` for end-to-end SSE latency. Numeric checkpoints target displayed financial values and category percentages. Exact field checks also cover dates, selected items and transaction details. With LLM prompts enabled, scores reflect the model's actual tool choices rather than a stub.
 
-Latest full run (40 prompts, fixed date 2026-11-23, Groq `openai/gpt-oss-20b`): **40/40 intent**, **40/40 UI type**, **313/313 expected fields**, and **536/536 numeric checkpoints** matched. The run made four model calls (the other 36 prompts took the deterministic path), used 3,113 input and 226 output tokens, and cost **$0.000301 USD total**, or **$0.00000753 per prompt** at the published rates above. Handler latency was **9.50 ms p50 / 409.29 ms p95**; the four LLM-only prompts were **409.29 ms p50 / 614.05 ms p95**. This is one successful run, not a claim of stable provider availability; a subsequent HTTP stress run encountered the free-tier TPM limit.
+Latest full run (48 prompts, fixed date 2026-11-23, Groq `openai/gpt-oss-20b`): **48/48 intent**, **48/48 UI type**, **368/368 expected fields**, and **579/579 numeric checkpoints** matched. The run made four model calls (the other 44 prompts took deterministic paths), used 3,116 input and 226 output tokens, and cost **$0.0003015 USD total**, or **$0.00000628 per prompt** at the published rates above. Handler latency was **12.57 ms p50 / 519.93 ms p95**; the four LLM-only prompts were **519.93 ms p50 / 938.49 ms p95**. This is one successful run, not a claim of stable provider availability.
 
 *Honest limit:* the guard checks that numbers *exist in the payload*, not that they are *relevant*. Correctness of the payload itself rests on the oracle tests above. The checker also doesn't understand units, so "6 months" and "₹6" would look alike.
 
@@ -85,25 +88,25 @@ Latest full run (40 prompts, fixed date 2026-11-23, Groq `openai/gpt-oss-20b`): 
 
 Targets: first visible response < 1 s, complete UI ≤ 5 s. The server streams SSE: a `placeholder` event is written **before routing and database work** (the client shows a skeleton), then `text`, `ui`, `done`. The LLM call has a 3.5 s timeout and falls back to a fixed notice. The common scenario phrasings use rules and do not wait on an LLM.
 
-**Measured end-to-end over local HTTP/SSE:** 100 sequential samples per scenario, Node 26.13.1, six common rule-routed prompts. “First” is receipt of the first SSE bytes (a server-side proxy for the placeholder; actual browser paint is not instrumented); “full” is receipt of the `done` event. The client displays a local skeleton immediately when the user submits. These figures are from the earlier six-route benchmark; the fresh LLM-enabled run used 10 samples per scenario below.
+**Measured end-to-end over local HTTP/SSE:** 30 sequential samples per scenario, Node 26.13.1, six common rule-routed prompts, isolated copy of the synthetic database. “First” is receipt of the first SSE bytes (a server-side proxy for the placeholder; actual browser paint is not instrumented); “full” is receipt of the `done` event. The client displays a local skeleton immediately when the user submits. The server also logs `firstResponseMs` and `completeUiMs` per request.
 
 | scenario | first p50 ms | first p95 ms | full p50 ms | full p95 ms |
 |---|---:|---:|---:|---:|
-| spending breakdown | 16.9 | 20.1 | 26.7 | 30.9 |
-| food budget | 16.6 | 20.1 | 33.5 | 38.6 |
-| Goa group draft | 15.3 | 17.2 | 36.8 | 40.9 |
-| phone savings plan | 15.8 | 18.2 | 39.9 | 44.0 |
-| Swiggy picker | 15.7 | 19.0 | 25.4 | 30.2 |
-| investment refusal | 15.0 | 18.7 | 24.1 | 28.9 |
-| **all six** | **15.8** | **19.6** | **30.9** | **41.5** |
+| spending breakdown | 3.7 | 8.9 | 4.0 | 9.6 |
+| food budget | 2.9 | 4.5 | 3.4 | 5.3 |
+| Goa group draft | 2.6 | 3.7 | 4.3 | 6.1 |
+| phone savings plan | 2.4 | 8.5 | 5.2 | 11.3 |
+| Swiggy picker | 2.3 | 3.3 | 2.5 | 3.8 |
+| investment refusal | 2.7 | 3.6 | 3.9 | 5.3 |
+| **all six** | **2.8** | **5.3** | **4.0** | **6.0** |
 
-All six rule-routed prompts met both latency targets. A fresh HTTP/SSE run with 10 samples per scenario measured all routes at **6.9 ms first-response p50 / 10.1 ms p95** and **21.4 ms complete-UI p50 / 615.1 ms p95**. For four LLM-only phrases (40 total attempts), first response was **8.1 ms p50 / 10.6 ms p95** and complete UI was **90.0 ms p50 / 709.9 ms p95**. These LLM samples are not all model successes: the provider returned HTTP 429 after its 8,000 TPM free-tier limit was reached, and the app correctly returned its fallback notice. Treat the full-UI aggregate and those LLM figures as rate-limit-contaminated, not model-service latency. Successful model-call latency and token cost are reported separately from the 40-prompt run above. All are local HTTP measurements; browser paint remains uninstrumented and another machine/network will differ.
+All six rule-routed prompts met both latency targets: aggregate first-response p95 was **5.3 ms**, and complete-UI p95 was **6.0 ms**. Model-inclusive handler latency is reported separately in the evaluation above. These are local HTTP measurements; browser paint remains uninstrumented and another machine/network will differ.
 
 `npm run bench` is available for in-process query profiling. It excludes HTTP, browser paint, and LLM routing. `npm run bench:http` measures the first SSE response and complete response for the six rule-routed prompts; pass `LLM=1` with a reachable API key to include all four LLM-only evaluation phrasings and report their p50/p95 separately.
 
 ## Data
 
-`data/dataset.json`: one synthetic user, **633 transactions**, 3 accounts (savings, credit card, wallet), 5 contacts, **8 months** (Apr–Nov 2026). Deliberately messy: duplicate postings, card-bill and wallet-load transfers (two legs), refunds, a failed-UPI reversal, friends' repayments (credits that are *not* income), ~4% missing categories, merchants with no name, and plain-text cash withdrawals. Seed is deterministic (`SEED=42`; verified byte-identical on re-seed). No real data.
+`data/dataset.json`: one synthetic user, **633 transactions**, 3 accounts (savings, credit card, wallet), 5 contacts, **8 months** (Apr–Nov 2026). Accounts include fake opening balances so the injection demo can calculate ledger balances from opening values plus posted transactions; the credit card is shown as an amount due. These are generated fixture values, not real balances. Deliberately messy: duplicate postings, card-bill and wallet-load transfers (two legs), refunds, a failed-UPI reversal, friends' repayments (credits that are *not* income), ~4% missing categories, merchants with no name, and plain-text cash withdrawals. Seed is deterministic (`SEED=42`; verified byte-identical on re-seed). No real data.
 
 ## Limits / what I'd do next
 
@@ -112,7 +115,7 @@ All six rule-routed prompts met both latency targets. A fresh HTTP/SSE run with 
 * Unusual wording depends on the optional LLM tier. If its endpoint is unreachable, rate-limited, or returns an invalid tool call, the assistant falls back to a generic notice. The full evaluation did validate all four LLM-only prompts in one successful run; later stress samples were limited by the provider's free-tier TPM quota.
 * Date and amount extraction is deliberately narrow. Relative dates such as “by March” and “in 6 months” work; unsupported date language asks for clarification. Missing a price or date returns a question instead of a projection.
 * Group matching searches the requested period and a limited keyword window, not arbitrary transaction history. Multiple matching hotels/cabs remain unselected; expense splits are equal-only.
-* Savings projections assume no amount has already been saved and one deposit per month starting next month. The “surplus” estimate is recent average income minus spend, not a bank balance or affordability guarantee.
+* Savings projections assume no amount has been saved specifically for the goal and one deposit per month starting next month; account balances are not automatically earmarked. The “surplus” estimate is recent average income minus spend, not an affordability guarantee. Displayed ledger balances depend on synthetic opening balances plus the available transaction history, not a live bank connection.
 * One synthetic user, English only, no authentication. Groups are global in this prototype; sessions scope drafts and confirmations, not group visibility.
 
 ### Deliberately left out
@@ -121,7 +124,7 @@ All six rule-routed prompts met both latency targets. A fresh HTTP/SSE run with 
 * **Authentication and multi-user permissions:** not needed for the assignment's single-user prototype; add them before any shared or production deployment.
 * **Model-written JSX and free-form financial answers:** excluded so the model cannot control UI structure or financial values. New UI types require code and schema changes.
 * **Flexible group search, custom splits, and recurring budgets:** excluded to keep transaction selection and writes reviewable within the time-boxed scenarios.
-* **Balances, existing goal savings, debt obligations, and future cash-flow simulation:** excluded because the synthetic dataset does not model reliable account balances or future events.
+* **Live bank balances, existing goal savings, debt obligations, and future cash-flow simulation:** excluded because this prototype has synthetic opening balances and transaction history only, not a bank connection or observed savings earmarked to goals.
 * **Personalized investment picks:** deliberately not offered; the assistant declines stock recommendations and offers data-grounded budgeting context instead.
 * **Voice and additional languages:** omitted because the assignment evaluates text interactions in English.
 

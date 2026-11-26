@@ -4,7 +4,7 @@ import { openDb } from '../src/db';
 import { handleAction, handleChat } from '../src/assistant';
 import type { UiSpec } from '../src/ui/spec';
 
-type Prompt = { id: string; prompt: string; expectedIntent: string; expectedUi: UiSpec['type']; numberProfile: string; llmRequired?: boolean };
+type Prompt = { id: string; prompt: string; expectedIntent: string; expectedUi: UiSpec['type']; numberProfile: string; llmRequired?: boolean; sequence?: 'confirm_phone_plan' };
 type Suite = { today: string; profiles: Record<string, Record<string, unknown>>; prompts: Prompt[] };
 const suite = JSON.parse(readFileSync(new URL('./prompts.json', import.meta.url), 'utf8')) as Suite;
 const envFile = fileURLToPath(new URL('../../.env', import.meta.url));
@@ -21,7 +21,7 @@ function readPath(root: unknown, path: string): unknown {
   for (const part of path.split('.')) {
     if (part === '*') v = Array.isArray(v) ? v.map((x) => x) : undefined;
     else if (part === 'length' && Array.isArray(v)) v = v.length;
-    else if (Array.isArray(v)) v = v.map((x) => x?.[part]);
+    else if (Array.isArray(v)) v = /^\d+$/.test(part) ? v[Number(part)] : v.map((x) => x?.[part]);
     else v = v?.[part];
   }
   return v;
@@ -57,7 +57,7 @@ async function main() {
   seedDb.exec(`VACUUM INTO '${evalDbPath}'`);
   seedDb.close();
   const db = openDb(evalDbPath);
-  for (const table of ['group_transactions', 'group_members', 'groups', 'goals', 'budgets', 'pending_actions', 'messages', 'sessions']) db.exec(`DELETE FROM ${table}`);
+  for (const table of ['group_manual_expenses', 'group_transactions', 'group_members', 'groups', 'goals', 'budgets', 'pending_actions', 'messages', 'session_state', 'sessions']) db.exec(`DELETE FROM ${table}`);
   const ctx = { db, today: suite.today };
 
   // Scenario 5 needs an existing confirmed group. It is created only in this throwaway evaluation DB.
@@ -73,13 +73,20 @@ async function main() {
   if (proposed.append?.ui.type !== 'confirm_card') throw new Error('Could not prepare picker fixture.');
   handleAction(ctx, setupSid, { action: 'confirm', pendingId: proposed.append.ui.pendingId }, proposed.append.messageId);
 
-  const results: { id: string; okIntent: boolean; okUi: boolean; exactFields: number; expectedFields: number; matchedNumbers: number; expectedNumbers: number; ms: number; via: string; llmRequired: boolean; usage?: { in: number; out: number }; failures: string[] }[] = [];
+  const results: { id: string; okIntent: boolean; okUi: boolean; exactFields: number; expectedFields: number; matchedNumbers: number; expectedNumbers: number; ms: number; via: string; llmRequired: boolean; usage?: { in: number; out: number }; ui: UiSpec; failures: string[] }[] = [];
   for (const [index, test] of suite.prompts.entries()) {
     if (onlyId && test.id !== onlyId) continue;
     if (test.llmRequired && (!hasLlmKey || skipLlm)) continue;
     const sid = `eval-${String(index).padStart(2, '0')}`;
     db.prepare("INSERT INTO sessions VALUES (?, 'eval')").run(sid);
     const start = performance.now();
+    if (test.sequence === 'confirm_phone_plan') {
+      const first = await handleChat(ctx, sid, 'Can I afford an ₹80k phone by March?');
+      if (first.ui.type !== 'savings_plan') throw new Error('F2 sequence could not create its initial plan.');
+      const proposal = handleAction(ctx, sid, { action: 'propose_goal', targetMonth: first.ui.targetMonth, monthly: first.ui.monthly }, first.messageId);
+      if (proposal.append?.ui.type !== 'confirm_card') throw new Error('F2 sequence could not prepare its confirmation.');
+      handleAction(ctx, sid, { action: 'confirm', pendingId: proposal.append.ui.pendingId }, proposal.append.messageId);
+    }
     const out = await handleChat(ctx, sid, test.prompt);
     const ms = performance.now() - start;
     const profile = suite.profiles[test.numberProfile];
@@ -94,7 +101,7 @@ async function main() {
     const okIntent = out.intent === test.expectedIntent;
     const okUi = out.ui.type === test.expectedUi;
     results.push({ id: test.id, okIntent, okUi, exactFields: exactFields.length, expectedFields: Object.keys(profile).length,
-      matchedNumbers: gotNumbers.length, expectedNumbers: wantNumbers.length, ms, via: out.via, llmRequired: Boolean(test.llmRequired), usage: out.usage,
+      matchedNumbers: gotNumbers.length, expectedNumbers: wantNumbers.length, ms, via: out.via, llmRequired: Boolean(test.llmRequired), usage: out.usage, ui: out.ui,
       failures: [...(!okIntent ? [`intent: ${out.intent}`] : []), ...(!okUi ? [`ui: ${out.ui.type}`] : []), ...failures] });
   }
   db.close();
@@ -124,7 +131,14 @@ async function main() {
   const failed = results.filter((r) => !r.okIntent || !r.okUi || r.failures.length);
   if (failed.length) {
     console.log('\nFailures:');
-    for (const r of failed) console.log(`  ${r.id}: ${r.failures.join('; ')}`);
+    for (const r of failed) {
+      const test = suite.prompts.find((p) => p.id === r.id)!;
+      const profile = suite.profiles[test.numberProfile];
+      const actual = results.find((x) => x.id === r.id)!.ui;
+      const details = Object.entries(profile).filter(([path, expected]) => !matches(readPath(actual, path), expected))
+        .map(([path, expected]) => `${path} expected=${JSON.stringify(expected)} actual=${JSON.stringify(readPath(actual, path))}`);
+      console.log(`  ${r.id}: ${r.failures.join('; ')}${details.length ? `\n    ${details.join('\n    ')}` : ''}`);
+    }
   }
   if (failed.length) process.exitCode = 1;
 }

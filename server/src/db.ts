@@ -14,5 +14,8 @@ export function openDb(path = DB_PATH): DB {
   const db = new DatabaseSync(path);
   db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
   db.exec(readFileSync(resolve(here, 'schema.sql'), 'utf8'));
+  // Backward-compatible schema migration for existing local demo databases.
+  const accountCols = db.prepare('PRAGMA table_info(accounts)').all() as { name: string }[];
+  if (!accountCols.some((c) => c.name === 'opening_balance')) db.exec('ALTER TABLE accounts ADD COLUMN opening_balance REAL NOT NULL DEFAULT 0');
   return db;
 }

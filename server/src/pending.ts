@@ -10,7 +10,7 @@ import { txnsByIds } from "./queries";
 import { round2 } from "./queries";
 import type { UiSpec } from "./ui/spec";
 
-export type PendingKind = "create_budget" | "create_group" | "add_to_group" | "create_goal";
+export type PendingKind = "create_budget" | "create_group" | "add_to_group" | "create_goal" | "add_manual_group_expense" | "create_group_with_expense";
 export interface Card { title: string; confirmLabel: string; lines: { label: string; value: string }[] }
 interface Draft { data: any; card: Card; sourceMessageId?: number }
 
@@ -76,6 +76,17 @@ const APPLY: Record<PendingKind, Applier> = {
   create_goal(ctx, d) {
     ctx.db.prepare("INSERT INTO goals (id, item, price, target_month, monthly_saving, created_at) VALUES (?,?,?,?,?,?)").run(randomUUID(), d.item, d.price, d.targetMonth, d.monthly, new Date().toISOString());
     return `Done. Saved your goal: ${inr(d.price)} for ${d.item.toLowerCase()} by ${d.targetLabel}, setting aside ${inr(d.monthly)} a month.`;
+  },
+  add_manual_group_expense(ctx, d) {
+    const id = randomUUID();
+    ctx.db.prepare('INSERT INTO group_manual_expenses (id,group_id,amount,description,expense_date,created_at) VALUES (?,?,?,?,?,?)').run(id,d.groupId,d.amount,d.description,d.expenseDate,new Date().toISOString());
+    return `Done. Added ${inr(d.amount)} to “${d.groupName}” as ${d.description.toLowerCase()}.`;
+  },
+  create_group_with_expense(ctx, d) {
+    const id = randomUUID(), now = new Date().toISOString();
+    ctx.db.prepare('INSERT INTO groups (id,name,created_at) VALUES (?,?,?)').run(id,d.groupName,now);
+    ctx.db.prepare('INSERT INTO group_manual_expenses (id,group_id,amount,description,expense_date,created_at) VALUES (?,?,?,?,?,?)').run(randomUUID(),id,d.amount,d.description,d.expenseDate,now);
+    return `Done. Created “${d.groupName}” and added ${inr(d.amount)} as ${d.description.toLowerCase()}.`;
   },
 };
 

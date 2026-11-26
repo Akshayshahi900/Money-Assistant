@@ -10,6 +10,7 @@ import {
   transactionsFor,
   monthlyAverage,
   monthlySpendSeries,
+  spendSummary as querySpendSummary,
   round2,
 } from "./queries";
 import { inr } from "./format";
@@ -17,6 +18,7 @@ import type { UiSpec } from "./ui/spec";
 
 import { Ctx, ToolResult, notice } from "./common";
 import { createPending } from "./pending";
+import type { SpendScope } from './spend-query';
 export type { Ctx, ToolResult };
 export { notice };
 
@@ -33,24 +35,33 @@ export function categories(db: DatabaseSync): string[] {
 // ---------- scenario 1: breakdown + drill-down ----------
 export function showSpendingBreakdown(ctx: Ctx, period: PeriodKey): ToolResult {
   const p = resolvePeriod(period, ctx.today);
-  const b = spendByCategory(ctx.db, p);
-  if (!b.categories.length)
-    return notice(`I couldn't find any spending for ${p.label}.`);
-  const [a, c] = b.categories;
-  const second = c ? `, followed by ${c.category} at ${inr(c.amount)}` : "";
+  return spendSummary(ctx, { status: 'ready', period: p, filters: {}, queryLabel: `All spending · ${p.label}`, dataFrom: p.from, dataTo: p.to });
+}
+
+export function spendSummary(ctx: Ctx, scope: SpendScope): ToolResult {
+  if (scope.status === 'needs_period') return notice(`What period should I use for ${scope.queryLabel.replace(/ · period needed$/, '')}? Try this week, last month, a named month, or the last 7 days.`);
+  if (scope.status === 'merchant_missing') return notice(`I can't find “${scope.merchant}” as a merchant in your transaction data.`);
+  const p = scope.period;
+  const base = { type: 'spending_breakdown' as const, period: p, queryLabel: scope.queryLabel, dataRange: { from: scope.dataFrom, to: scope.dataTo }, filters: scope.filters };
+  if (scope.status === 'out_of_range') {
+    return {
+      text: `I only have spend data from ${scope.dataFrom} to ${scope.dataTo}; ${scope.queryLabel} is outside that range.`,
+      ui: { ...base, status: 'out_of_range', total: null, categories: [] },
+    };
+  }
+  const b = querySpendSummary(ctx.db, p, scope.filters);
+  const empty = b.categories.length === 0 || b.total <= 0;
+  const summary = empty
+    ? `No ${scope.filters.merchant ? `${scope.filters.merchant} ` : ''}spend found in ${p.label}.${scope.status === 'partial' ? ` Available records are from ${scope.dataFrom} to ${scope.dataTo}.` : ''}`
+    : `You spent ${inr(b.total)} for ${scope.queryLabel}.${scope.status === 'partial' ? ` Available records are from ${scope.dataFrom} to ${scope.dataTo}; this requested period is partial.` : ' Tap a category to see its transactions.'}`;
   return {
-    text: `You spent ${inr(b.total)} in ${p.label}. ${a.category} was the biggest at ${inr(a.amount)} (${a.pct}%)${second}. Tap a category to see the transactions.`,
-    ui: {
-      type: "spending_breakdown",
-      period: p,
-      total: b.total,
-      categories: b.categories,
-    },
+    text: summary,
+    ui: { ...base, status: scope.status === 'partial' ? 'partial' : empty ? 'empty' : 'ready', total: b.total, categories: b.categories },
   };
 }
 
-export function drillDown(ctx: Ctx, category: string, p: Period): ToolResult {
-  const rows = transactionsFor(ctx.db, p, { category });
+export function drillDown(ctx: Ctx, category: string, p: Period, filters: { merchant?: string; paymentMode?: string; accountId?: string } = {}): ToolResult {
+  const rows = transactionsFor(ctx.db, p, { category, ...filters, exactMerchant: true });
   const total = round2(rows.reduce((s, r) => s + r.net_amount, 0));
   return {
     text: `${category} in ${p.label}: ${rows.length} transaction${rows.length === 1 ? "" : "s"} totalling ${inr(total)}.`,

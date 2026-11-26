@@ -1,7 +1,8 @@
 -- ===== Source data (synthetic, read-only for the assistant) =====
 CREATE TABLE IF NOT EXISTS accounts (
   id TEXT PRIMARY KEY, name TEXT NOT NULL,
-  type TEXT NOT NULL CHECK (type IN ('savings','credit_card','wallet'))
+  type TEXT NOT NULL CHECK (type IN ('savings','credit_card','wallet')),
+  opening_balance REAL NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS contacts (
   id TEXT PRIMARY KEY, name TEXT NOT NULL, phone TEXT, upi_id TEXT
@@ -40,7 +41,7 @@ WINDOW w AS (PARTITION BY account_id, raw_description, amount, direction ORDER B
 DROP VIEW IF EXISTS spend_events;
 CREATE VIEW spend_events AS
 SELECT id, account_id, timestamp, substr(timestamp,1,10) AS day,
-       COALESCE(category,'Uncategorised') AS category, merchant, raw_description,
+       COALESCE(category,'Uncategorised') AS category, merchant, raw_description, payment_mode,
        CASE WHEN direction='debit' THEN amount ELSE -amount END AS net_amount
 FROM txn_flagged
 WHERE is_transfer=0 AND is_duplicate=0 AND (direction='debit' OR is_refund=1);
@@ -48,6 +49,10 @@ WHERE is_transfer=0 AND is_duplicate=0 AND (direction='debit' OR is_refund=1);
 -- ===== Assistant-owned state =====
 CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY, created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS session_state (
+  session_id TEXT PRIMARY KEY REFERENCES sessions(id),
+  state_json TEXT NOT NULL DEFAULT '{}'
 );
 CREATE TABLE IF NOT EXISTS messages (            -- chat transcript + rendered UI, replayed on refresh
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -77,6 +82,14 @@ CREATE TABLE IF NOT EXISTS group_members (
 CREATE TABLE IF NOT EXISTS group_transactions (
   group_id TEXT NOT NULL REFERENCES groups(id), transaction_id TEXT NOT NULL REFERENCES transactions(id),
   PRIMARY KEY (group_id, transaction_id)
+);
+CREATE TABLE IF NOT EXISTS group_manual_expenses (
+  id TEXT PRIMARY KEY,
+  group_id TEXT NOT NULL REFERENCES groups(id),
+  amount REAL NOT NULL CHECK (amount > 0),
+  description TEXT NOT NULL,
+  expense_date TEXT NOT NULL,
+  created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS goals (                -- savings goals created from a confirmed plan
   id TEXT PRIMARY KEY, item TEXT NOT NULL, price REAL NOT NULL, target_month TEXT NOT NULL,

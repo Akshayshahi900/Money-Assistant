@@ -14,11 +14,13 @@ function Breakdown({ spec, onAction }: { spec: Of<'spending_breakdown'>; onActio
   const max = spec.categories[0]?.amount || 1;
   return (
     <div className="card">
-      <div className="sub">Spent in {spec.period.label}</div>
-      <div className="big num">{inr(spec.total)}</div>
+      <div className="sub">{spec.queryLabel}</div>
+      {spec.status === 'out_of_range' ? <div className="note">Data available: {spec.dataRange.from} to {spec.dataRange.to}</div> : <div className="big num">{inr(spec.total ?? 0)}</div>}
+      {spec.status === 'partial' && <div className="note">Available data: {spec.dataRange.from} to {spec.dataRange.to}. The requested period extends beyond it.</div>}
+      {spec.status === 'empty' && <div className="sub">No matching transactions in this period.</div>}
       {spec.categories.map((c) => (
         <button key={c.category} className="cat" aria-label={`${c.category}, ${inr(c.amount)}. Show transactions`}
-          onClick={() => onAction({ action: 'drill_down', category: c.category, from: spec.period.from, to: spec.period.to, label: spec.period.label })}>
+          onClick={() => onAction({ action: 'drill_down', category: c.category, from: spec.period.from, to: spec.period.to, label: spec.period.label, merchant: spec.filters.merchant, paymentMode: spec.filters.paymentMode, accountId: spec.filters.accountId })}>
           <div className="row"><span>{c.category}</span><span><Amount n={c.amount} /> <span className="sub num">{c.pct}%</span></span></div>
           <div className="bar"><i style={{ width: `${(c.amount / max) * 100}%` }} /></div>
         </button>
@@ -168,6 +170,7 @@ function SavingsPlan({ spec, onAction }: { spec: Of<'savings_plan'>; onAction: O
     <div className="card" aria-label="Savings plan">
       <div className="row"><h3>{spec.item} · <span className="num">{inr(spec.price)}</span></h3><span className={`badge ${spec.verdict}`}>{VERDICT[spec.verdict]}</span></div>
       <div className="sub">Needs <b className="num">{inr(spec.requiredMonthly)}</b> a month to hit it by {spec.targetLabel} · your recent surplus is <b className="num">{inr(spec.avgSurplus)}</b> a month ({spec.basis})</div>
+      <div className="sub">Formula: ({inr(spec.price)} − {inr(spec.savedAlready)} saved for this goal) ÷ {spec.monthsLeft} months = {inr(spec.requiredMonthly)}/month. Account balances are not counted as goal savings.</div>
 
       <div className="bars" aria-label="Savings by month">
         <div className="goal" style={{ bottom: `${(spec.price / top) * 100}%` }}><span>Goal {inr(spec.price)}</span></div>

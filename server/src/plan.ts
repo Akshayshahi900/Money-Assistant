@@ -27,8 +27,9 @@ export function computePlan(ctx: Ctx, item: string, price: number, targetMonth: 
   const max = Math.ceil((s.avgIncome * 0.5) / 1000) * 1000;
   const snap = (n: number) => Math.min(max, Math.max(0, Math.round(n / STEP) * STEP));   // server clamps: client input is never trusted
   const monthly = snap(monthlyIn ?? Math.floor(Math.max(0, s.avgSurplus) / STEP) * STEP);
-  const requiredMonthly = Math.ceil(price / monthsLeft);
-  const projected = round2(monthly * monthsLeft);
+  const savedAlready = 0; // no goal-specific balance is present in this prototype; account cash is not assumed saved for this purchase
+  const requiredMonthly = Math.ceil(Math.max(0, price - savedAlready) / monthsLeft);
+  const projected = round2(savedAlready + monthly * monthsLeft);
   const shortfall = Math.max(0, round2(price - projected));
   const verdict: Plan["verdict"] = projected >= price ? (monthly <= s.avgSurplus ? "on_track" : "stretch") : "short";
   const label = (n: number) => (Number.isFinite(n) && n <= 60 ? shortLabelYM(addMonthsYM(cur, n)) : null);
@@ -41,7 +42,7 @@ export function computePlan(ctx: Ctx, item: string, price: number, targetMonth: 
     targetMonth, targetLabel: labelYM(targetMonth),
     targetOptions: Array.from({ length: MAX_MONTHS }, (_, i) => { const v = addMonthsYM(cur, i + 1); return { value: v, label: shortLabelYM(v) }; }),
     monthsLeft, monthly, min: 0, max, step: STEP,
-    requiredMonthly, gapMonthly: Math.max(0, requiredMonthly - monthly),
+    requiredMonthly, savedAlready, gapMonthly: Math.max(0, requiredMonthly - monthly),
     avgIncome: s.avgIncome, avgSpend: s.avgSpend, avgSurplus: s.avgSurplus, basis: p.label,
     projected, shortfall, verdict,
     reachedLabel: label(monthsToReach(price, monthly)), earliestLabel: label(monthsToReach(price, s.avgSurplus)),
@@ -79,6 +80,8 @@ export function proposeGoal(ctx: Ctx, sid: string, prev: Plan, input: { targetMo
     title: "Save savings goal", confirmLabel: "Save goal",
     lines: [
       { label: "Goal", value: r.item }, { label: "Price", value: inr(r.price) }, { label: "Target", value: r.targetLabel },
+      { label: "Already saved for this goal", value: inr(r.savedAlready) },
+      { label: "Required monthly formula", value: `(${inr(r.price)} − ${inr(r.savedAlready)} saved) ÷ ${r.monthsLeft} = ${inr(r.requiredMonthly)}/month` },
       { label: "Set aside each month", value: inr(r.monthly) }, { label: `Saved by ${r.targetLabel}`, value: inr(r.projected) },
       ...(r.shortfall > 0 ? [{ label: "Still short by", value: inr(r.shortfall) }] : []),
     ],

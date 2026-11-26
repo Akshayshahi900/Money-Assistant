@@ -21,7 +21,11 @@ export const NoticeSpec = z.object({
 export const SpendingBreakdownSpec = z.object({
   type: z.literal("spending_breakdown"),
   period: Period,
-  total: z.number(),
+  queryLabel: z.string(),
+  status: z.enum(["ready", "empty", "partial", "out_of_range"]),
+  total: z.number().nullable(),
+  dataRange: z.object({ from: z.string(), to: z.string() }),
+  filters: z.object({ merchant: z.string().optional(), category: z.string().optional(), paymentMode: z.string().optional(), accountId: z.string().optional() }),
   categories: z.array(
     z.object({
       category: z.string(),
@@ -123,6 +127,7 @@ export const SavingsPlanSpec = z.object({
   max: z.number(),
   step: z.number(),
   requiredMonthly: z.number(),
+  savedAlready: z.number(),
   gapMonthly: z.number(),            // requiredMonthly - monthly, floored at 0
   avgIncome: z.number(),
   avgSpend: z.number(),
@@ -173,6 +178,9 @@ export const ActionPayload = z.discriminatedUnion("action", [
     from: date,
     to: date,
     label: z.string().max(60),
+    merchant: z.string().max(80).optional(),
+    paymentMode: z.string().max(40).optional(),
+    accountId: z.string().max(64).optional(),
   }),
   z.object({
     action: z.literal("adjust_budget"),

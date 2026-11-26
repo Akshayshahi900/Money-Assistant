@@ -42,17 +42,23 @@ app.post<{ Body: { sessionId?: string; message: string } }>('/api/chat', async (
   const sid = ensureSession(req.body.sessionId);
   reply.raw.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive', 'Access-Control-Allow-Origin': '*' });
   const t0 = performance.now();
+  let firstResponseMs: number | null = null;
   sse(reply, 'session', { sessionId: sid });
+  firstResponseMs = performance.now() - t0;
   sse(reply, 'placeholder', { kind: 'skeleton', ms: Math.round(performance.now() - t0) });
   try {
     const o = await handleChat(ctx, sid, req.body.message);
     sse(reply, 'text', { text: o.text });
     sse(reply, 'ui', o.ui);
-    sse(reply, 'done', { messageId: o.messageId, via: o.via, intent: o.intent, usage: o.usage ?? null, ms: Math.round(performance.now() - t0) });
+    const completeUiMs = performance.now() - t0;
+    console.info(JSON.stringify({ event: 'chat_latency', sessionId: sid, firstResponseMs, completeUiMs, via: o.via }));
+    sse(reply, 'done', { messageId: o.messageId, via: o.via, intent: o.intent, usage: o.usage ?? null, ms: Math.round(completeUiMs) });
   } catch (e) {
     console.error(e);
     sse(reply, 'ui', { type: 'notice', tone: 'error', text: 'Something went wrong. Please try again.' });
-    sse(reply, 'done', { ms: Math.round(performance.now() - t0) });
+    const completeUiMs = performance.now() - t0;
+    console.info(JSON.stringify({ event: 'chat_latency', sessionId: sid, firstResponseMs, completeUiMs, via: 'error' }));
+    sse(reply, 'done', { ms: Math.round(completeUiMs) });
   }
   reply.raw.end();
   return reply;

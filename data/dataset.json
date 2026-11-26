@@ -3,17 +3,20 @@
   {
    "id": "acc_sav",
    "name": "HDFC Savings ••4412",
-   "type": "savings"
+   "type": "savings",
+   "opening_balance": 150000
   },
   {
    "id": "acc_cc",
    "name": "ICICI Amazon Pay Credit Card ••9037",
-   "type": "credit_card"
+   "type": "credit_card",
+   "opening_balance": 5000
   },
   {
    "id": "acc_wal",
    "name": "Paytm Wallet",
-   "type": "wallet"
+   "type": "wallet",
+   "opening_balance": 2500
   }
  ],
  "contacts": [

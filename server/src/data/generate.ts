@@ -34,9 +34,9 @@ const pad = (n: number) => String(n).padStart(2, '0');
 
 // ---------- static entities ----------
 const accounts = [
-  { id: 'acc_sav', name: 'HDFC Savings ••4412', type: 'savings' },
-  { id: 'acc_cc', name: 'ICICI Amazon Pay Credit Card ••9037', type: 'credit_card' },
-  { id: 'acc_wal', name: 'Paytm Wallet', type: 'wallet' },
+  { id: 'acc_sav', name: 'HDFC Savings ••4412', type: 'savings', opening_balance: 150000 },
+  { id: 'acc_cc', name: 'ICICI Amazon Pay Credit Card ••9037', type: 'credit_card', opening_balance: 5000 },
+  { id: 'acc_wal', name: 'Paytm Wallet', type: 'wallet', opening_balance: 2500 },
 ];
 const contacts = [
   { id: 'c_rahul', name: 'Rahul Sharma', phone: '+91 98100 11001', upi_id: 'rahul.sharma@okhdfcbank' },
@@ -206,8 +206,8 @@ rows.forEach((r, i) => (r.id = `txn_${String(i + 1).padStart(4, '0')}`));
 for (const f of [DB_PATH, DB_PATH + '-wal', DB_PATH + '-shm']) rmSync(f, { force: true });
 const db = openDb();
 db.exec('BEGIN');
-const ia = db.prepare('INSERT INTO accounts VALUES (?,?,?)');
-for (const a of accounts) ia.run(a.id, a.name, a.type);
+const ia = db.prepare('INSERT INTO accounts (id,name,type,opening_balance) VALUES (?,?,?,?)');
+for (const a of accounts) ia.run(a.id, a.name, a.type, a.opening_balance);
 const ic = db.prepare('INSERT INTO contacts VALUES (?,?,?,?)');
 for (const c of contacts) ic.run(c.id, c.name, c.phone, c.upi_id);
 const it = db.prepare('INSERT INTO transactions VALUES (?,?,?,?,?,?,?,?,?)');
