@@ -22,7 +22,16 @@ function provider() {
   return null;
 }
 
-const PERIODS = ["yesterday", "today", "this_week", "this_month", "last_month", "last_30_days", "last_3_months", "last_6_months"];
+const PERIODS = [
+  "yesterday",
+  "today",
+  "this_week",
+  "this_month",
+  "last_month",
+  "last_30_days",
+  "last_3_months",
+  "last_6_months",
+];
 
 export async function llmRoute(
   msg: string,
@@ -30,7 +39,9 @@ export async function llmRoute(
 ): Promise<LlmRoute | null> {
   const p = provider();
   if (!p) {
-    console.warn("LLM routing skipped: set GROQ_API_KEY or GEMINI_API_KEY in the server environment.");
+    console.warn(
+      "LLM routing skipped: set GROQ_API_KEY or GEMINI_API_KEY in the server environment.",
+    );
     return null;
   }
   const tools = [
@@ -78,13 +89,24 @@ export async function llmRoute(
       type: "function",
       function: {
         name: "create_group",
-        description: "Call this when a user wants to make, create, organize, or start a shared expense group, trip cost pool, or expense pot with people. The user does not need to say the word group. Optionally include specific past transactions (hotel, cab, flight, food).",
+        description:
+          "Call this when a user wants to make, create, organize, or start a shared expense group, trip cost pool, or expense pot with people. The user does not need to say the word group. Optionally include specific past transactions (hotel, cab, flight, food).",
         parameters: {
           type: "object",
           properties: {
             groupName: { type: "string", description: "e.g. Goa trip" },
-            memberNames: { type: "array", items: { type: "string" }, description: "first names of friends, as written" },
-            items: { type: "array", items: { type: "string", enum: ["hotel", "cab", "flight", "food"] } },
+            memberNames: {
+              type: "array",
+              items: { type: "string" },
+              description: "first names of friends, as written",
+            },
+            items: {
+              type: "array",
+              items: {
+                type: "string",
+                enum: ["hotel", "cab", "flight", "food"],
+              },
+            },
             period: { type: "string", enum: PERIODS },
           },
           required: ["groupName", "memberNames", "items", "period"],
@@ -95,10 +117,17 @@ export async function llmRoute(
       type: "function",
       function: {
         name: "add_to_group",
-        description: "User wants to add existing transactions (matched by merchant or keyword, e.g. 'Swiggy') to their existing group.",
+        description:
+          "User wants to add existing transactions (matched by merchant or keyword, e.g. 'Swiggy') to their existing group.",
         parameters: {
           type: "object",
-          properties: { query: { type: "string", description: "merchant or keyword as written" }, period: { type: "string", enum: PERIODS } },
+          properties: {
+            query: {
+              type: "string",
+              description: "merchant or keyword as written",
+            },
+            period: { type: "string", enum: PERIODS },
+          },
           required: ["query", "period"],
         },
       },
@@ -107,16 +136,28 @@ export async function llmRoute(
       type: "function",
       function: {
         name: "plan_purchase",
-        description: "User asks whether they can afford or how to save for a purchase by a date. Do NOT extract the price.",
+        description:
+          "User asks whether they can afford or how to save for a purchase by a date. Do NOT extract the price.",
         parameters: {
           type: "object",
           properties: {
-            item: { type: "string", description: "what they want to buy, e.g. phone" },
+            item: {
+              type: "string",
+              description: "what they want to buy, e.g. phone",
+            },
             // Groq's tool validator rejects explicit nulls when these are merely optional.
             // Models commonly emit both fields with the unused one set to null, so declare
             // null as valid and let deterministic server logic resolve the date.
-            month: { type: ["integer", "null"], description: "target calendar month 1-12 if named, otherwise null" },
-            inMonths: { type: ["integer", "null"], description: "months from now if given relatively, otherwise null" },
+            month: {
+              type: ["integer", "null"],
+              description:
+                "target calendar month 1-12 if named, otherwise null",
+            },
+            inMonths: {
+              type: ["integer", "null"],
+              description:
+                "months from now if given relatively, otherwise null",
+            },
           },
         },
       },
@@ -125,7 +166,8 @@ export async function llmRoute(
       type: "function",
       function: {
         name: "investment_question",
-        description: "User asks what to invest in, which stock/fund/crypto to buy or sell, or for market tips.",
+        description:
+          "User asks what to invest in, which stock/fund/crypto to buy or sell, or for market tips.",
         parameters: { type: "object", properties: {} },
       },
     },
@@ -158,7 +200,9 @@ export async function llmRoute(
     });
     if (!res.ok) {
       const detail = (await res.text()).slice(0, 350);
-      console.warn(`LLM routing provider returned HTTP ${res.status}: ${detail}`);
+      console.warn(
+        `LLM routing provider returned HTTP ${res.status}: ${detail}`,
+      );
       return null;
     }
     const j: any = await res.json();
@@ -172,14 +216,20 @@ export async function llmRoute(
       return { tool: "", args: {}, usage };
     }
     try {
-      return { tool: call.function.name, args: JSON.parse(call.function.arguments || "{}"), usage };
+      return {
+        tool: call.function.name,
+        args: JSON.parse(call.function.arguments || "{}"),
+        usage,
+      };
     } catch {
       console.warn("LLM routing returned malformed tool arguments.");
       return { tool: "", args: {}, usage };
     }
   } catch (err) {
     if (err instanceof Error && err.name === "AbortError") {
-      console.warn(`LLM routing timed out after ${timeoutMs} ms (set LLM_TIMEOUT_MS to adjust).`);
+      console.warn(
+        `LLM routing timed out after ${timeoutMs} ms (set LLM_TIMEOUT_MS to adjust).`,
+      );
     }
     throw err;
   } finally {

@@ -44,6 +44,16 @@ flowchart LR
     W --> DB
 ```
 
+## Add a UI component
+
+The UI contract lives in `server/src/ui/spec.ts`; client renderers live in `web/src/registry.tsx`. To add a component:
+
+1. Define its Zod spec and add it to the `UiSpec` discriminated union.
+2. Have a server tool return that spec using values from validated inputs and database queries.
+3. Add a typed renderer and a matching `case` in `RenderUi`. The exhaustive switch makes an unhandled spec type a TypeScript error.
+4. If the UI needs interactions, add a typed `ActionPayload` variant and handle it on the server; keep writes behind the existing confirmation flow.
+5. Run `npm run typecheck` and `npm test` in `server/`, then `npm run build` in `web/`.
+
 ## Develop
 
 Install dependencies in `server/` and `web/` separately with `npm install`. Seed the synthetic database, then run each development server in its own terminal:
@@ -63,12 +73,12 @@ Open [http://localhost:5173](http://localhost:5173). Vite proxies API requests t
 
 Useful server commands (run from `server/`):
 
-| Command | Purpose |
-| --- | --- |
-| `npm test` | Run the test suite |
-| `npm run typecheck` | Check TypeScript types |
-| `npm run eval` | Evaluate prompts against expected intents, UI, and data |
-| `npm run bench` | Profile in-process query latency |
+| Command              | Purpose                                                         |
+| -------------------- | --------------------------------------------------------------- |
+| `npm test`           | Run the test suite                                              |
+| `npm run typecheck`  | Check TypeScript types                                          |
+| `npm run eval`       | Evaluate prompts against expected intents, UI, and data         |
+| `npm run bench`      | Profile in-process query latency                                |
 | `npm run bench:http` | Measure HTTP/SSE response latency (requires the server running) |
 
 The evaluator skips its LLM-only prompts if no provider key is configured. Set `EVAL_SKIP_LLM=1` to explicitly run only the deterministic subset.
@@ -77,22 +87,26 @@ The evaluator skips its LLM-only prompts if no provider key is configured. Set `
 
 Recorded results from one full run (48 prompts, 2026-11-23, Groq `openai/gpt-oss-20b`):
 
-| Evaluation | Result |
-| --- | ---: |
-| Intent / UI type | 48 / 48 each |
-| Expected fields / numeric checkpoints | 368 / 368; 579 / 579 |
-| Model calls | 4 (44 routed by rules) |
-| Tokens / reported cost | 3,116 input + 226 output; $0.0003015 total |
-| Handler latency | 12.57 ms p50; 519.93 ms p95 |
+| Evaluation                            |                                     Result |
+| ------------------------------------- | -----------------------------------------: |
+| Intent / UI type                      |                               48 / 48 each |
+| Expected fields / numeric checkpoints |                       368 / 368; 579 / 579 |
+| Model calls                           |                     4 (44 routed by rules) |
+| Tokens / reported cost                | 3,116 input + 226 output; $0.0003015 total |
+| Handler latency                       |                12.57 ms p50; 519.93 ms p95 |
 
 Local HTTP/SSE benchmark, 30 samples per scenario across the six rule-routed prompts:
 
-| Measure | p50 | p95 |
-| --- | ---: | ---: |
-| First SSE bytes | 2.8 ms | 5.3 ms |
+| Measure              |    p50 |    p95 |
+| -------------------- | -----: | -----: |
+| First SSE bytes      | 2.8 ms | 5.3 ms |
 | Complete UI response | 4.0 ms | 6.0 ms |
 
 These are single-run local measurements, not availability or browser-paint guarantees. Rerun with `npm run eval` or `npm run bench:http` from `server/` (the latter requires the app running). The evaluator uses a temporary database clone; LLM-only prompts need a configured provider key.
+
+## Continuous integration
+
+GitHub Actions runs on pushes and pull requests. The workflow installs server and web dependencies, seeds the synthetic database, type-checks and tests the server, and builds the web app. No API keys are needed.
 
 ## Data and scope
 

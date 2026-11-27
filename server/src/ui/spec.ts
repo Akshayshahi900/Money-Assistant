@@ -24,8 +24,14 @@ export const SpendingBreakdownSpec = z.object({
   queryLabel: z.string(),
   status: z.enum(["ready", "empty", "partial", "out_of_range"]),
   total: z.number().nullable(),
+  matchedCount: z.number().int().nonnegative().optional(),
   dataRange: z.object({ from: z.string(), to: z.string() }),
-  filters: z.object({ merchant: z.string().optional(), category: z.string().optional(), paymentMode: z.string().optional(), accountId: z.string().optional() }),
+  filters: z.object({
+    merchant: z.string().optional(),
+    category: z.string().optional(),
+    paymentMode: z.string().optional(),
+    accountId: z.string().optional(),
+  }),
   categories: z.array(
     z.object({
       category: z.string(),
@@ -72,30 +78,43 @@ export const ConfirmCardSpec = z.object({
   confirmLabel: z.string().optional(),
 });
 
-
 export const InfoCardSpec = z.object({
   type: z.literal("info_card"),
   title: z.string(),
   body: z.string(),
   facts: z.array(z.object({ label: z.string(), value: z.string() })),
   points: z.array(z.string()),
-  actions: z.array(z.object({ label: z.string(), ask: z.enum(["spending_last_month", "spending_last_3_months"]) })),
+  actions: z.array(
+    z.object({
+      label: z.string(),
+      ask: z.enum(["spending_last_month", "spending_last_3_months"]),
+    }),
+  ),
 });
 
 export const GroupBuilderSpec = z.object({
   type: z.literal("group_builder"),
   status: z.enum(["editing", "done"]),
   name: z.string(),
-  members: z.array(z.object({ id: z.string(), name: z.string(), selected: z.boolean() })),
+  members: z.array(
+    z.object({ id: z.string(), name: z.string(), selected: z.boolean() }),
+  ),
   transactions: z.array(
     z.object({
-      id: z.string(), date: z.string(), merchant: z.string(), description: z.string(),
-      amount: z.number(), selected: z.boolean(), hint: z.string().optional(),
+      id: z.string(),
+      date: z.string(),
+      merchant: z.string(),
+      description: z.string(),
+      amount: z.number(),
+      selected: z.boolean(),
+      hint: z.string().optional(),
     }),
   ),
   selectedCount: z.number(),
   total: z.number(),
-  split: z.object({ people: z.number(), each: z.number(), you: z.number() }).nullable(),
+  split: z
+    .object({ people: z.number(), each: z.number(), you: z.number() })
+    .nullable(),
   notes: z.array(z.string()),
 });
 
@@ -106,7 +125,11 @@ export const ChoicePickerSpec = z.object({
   group: z.object({ id: z.string(), name: z.string() }),
   options: z.array(
     z.object({
-      id: z.string(), label: z.string(), detail: z.string(), amount: z.number(), selected: z.boolean(),
+      id: z.string(),
+      label: z.string(),
+      detail: z.string(),
+      amount: z.number(),
+      selected: z.boolean(),
     }),
   ),
   selectedCount: z.number(),
@@ -128,7 +151,7 @@ export const SavingsPlanSpec = z.object({
   step: z.number(),
   requiredMonthly: z.number(),
   savedAlready: z.number(),
-  gapMonthly: z.number(),            // requiredMonthly - monthly, floored at 0
+  gapMonthly: z.number(), // requiredMonthly - monthly, floored at 0
   avgIncome: z.number(),
   avgSpend: z.number(),
   avgSurplus: z.number(),
@@ -192,13 +215,34 @@ export const ActionPayload = z.discriminatedUnion("action", [
     category: z.string().max(60),
     limit: z.number().finite(),
   }),
-  z.object({ action: z.literal("update_group"), name: z.string().max(80), memberIds: ids, txnIds: ids }),
-  z.object({ action: z.literal("propose_group"), name: z.string().max(80), memberIds: ids, txnIds: ids }),
+  z.object({
+    action: z.literal("update_group"),
+    name: z.string().max(80),
+    memberIds: ids,
+    txnIds: ids,
+  }),
+  z.object({
+    action: z.literal("propose_group"),
+    name: z.string().max(80),
+    memberIds: ids,
+    txnIds: ids,
+  }),
   z.object({ action: z.literal("update_choice"), ids }),
   z.object({ action: z.literal("submit_choice"), ids }),
-  z.object({ action: z.literal("adjust_plan"), targetMonth: ym, monthly: z.number().finite() }),
-  z.object({ action: z.literal("propose_goal"), targetMonth: ym, monthly: z.number().finite() }),
-  z.object({ action: z.literal("quick_ask"), ask: z.enum(["spending_last_month", "spending_last_3_months"]) }),
+  z.object({
+    action: z.literal("adjust_plan"),
+    targetMonth: ym,
+    monthly: z.number().finite(),
+  }),
+  z.object({
+    action: z.literal("propose_goal"),
+    targetMonth: ym,
+    monthly: z.number().finite(),
+  }),
+  z.object({
+    action: z.literal("quick_ask"),
+    ask: z.enum(["spending_last_month", "spending_last_3_months"]),
+  }),
   z.object({ action: z.literal("confirm"), pendingId: z.string().max(64) }),
   z.object({ action: z.literal("cancel"), pendingId: z.string().max(64) }),
 ]);

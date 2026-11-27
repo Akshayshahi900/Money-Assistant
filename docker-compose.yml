@@ -2,7 +2,7 @@ services:
   app:
     build:
       context: .
-      network: host   # fixes registry stalls from firewalld/IPv6 on Fedora-style hosts; remove if you don't need it
+      network: host # fixes registry stalls from firewalld/IPv6 on Fedora-style hosts; remove if you don't need it
     ports: ["3000:3000"]
     env_file: [.env]
     environment:

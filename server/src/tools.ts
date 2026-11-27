@@ -18,7 +18,7 @@ import type { UiSpec } from "./ui/spec";
 
 import { Ctx, ToolResult, notice } from "./common";
 import { createPending } from "./pending";
-import type { SpendScope } from './spend-query';
+import type { SpendScope } from "./spend-query";
 export type { Ctx, ToolResult };
 export { notice };
 
@@ -35,33 +35,85 @@ export function categories(db: DatabaseSync): string[] {
 // ---------- scenario 1: breakdown + drill-down ----------
 export function showSpendingBreakdown(ctx: Ctx, period: PeriodKey): ToolResult {
   const p = resolvePeriod(period, ctx.today);
-  return spendSummary(ctx, { status: 'ready', period: p, filters: {}, queryLabel: `All spending · ${p.label}`, dataFrom: p.from, dataTo: p.to });
+  return spendSummary(ctx, {
+    status: "ready",
+    period: p,
+    filters: {},
+    queryLabel: `All spending · ${p.label}`,
+    dataFrom: p.from,
+    dataTo: p.to,
+  });
 }
 
 export function spendSummary(ctx: Ctx, scope: SpendScope): ToolResult {
-  if (scope.status === 'needs_period') return notice(`What period should I use for ${scope.queryLabel.replace(/ · period needed$/, '')}? Try this week, last month, a named month, or the last 7 days.`);
-  if (scope.status === 'merchant_missing') return notice(`I can't find “${scope.merchant}” as a merchant in your transaction data.`);
+  if (scope.status === "needs_period")
+    return notice(
+      `What period should I use for ${scope.queryLabel.replace(/ · period needed$/, "")}? Try this week, last month, a named month, or the last 7 days.`,
+    );
+  if (scope.status === "merchant_missing")
+    return notice(
+      `I can't find “${scope.merchant}” as a merchant in your transaction data.`,
+    );
   const p = scope.period;
-  const base = { type: 'spending_breakdown' as const, period: p, queryLabel: scope.queryLabel, dataRange: { from: scope.dataFrom, to: scope.dataTo }, filters: scope.filters };
-  if (scope.status === 'out_of_range') {
+  const base = {
+    type: "spending_breakdown" as const,
+    period: p,
+    queryLabel: scope.queryLabel,
+    dataRange: { from: scope.dataFrom, to: scope.dataTo },
+    filters: scope.filters,
+  };
+  if (scope.status === "out_of_range") {
     return {
       text: `I only have spend data from ${scope.dataFrom} to ${scope.dataTo}; ${scope.queryLabel} is outside that range.`,
-      ui: { ...base, status: 'out_of_range', total: null, categories: [] },
+      ui: { ...base, status: "out_of_range", total: null, categories: [] },
     };
   }
   const b = querySpendSummary(ctx.db, p, scope.filters);
+  const matchedCount = scope.countRequested
+    ? transactionsFor(ctx.db, p, { ...scope.filters, exactMerchant: true }).filter(
+        (row) => row.net_amount > 0,
+      ).length
+    : undefined;
+  const coverageNote =
+    scope.status === "partial"
+      ? ` Available records are from ${scope.dataFrom} to ${scope.dataTo}.`
+      : "";
   const empty = b.categories.length === 0 || b.total <= 0;
-  const summary = empty
-    ? `No ${scope.filters.merchant ? `${scope.filters.merchant} ` : ''}spend found in ${p.label}.${scope.status === 'partial' ? ` Available records are from ${scope.dataFrom} to ${scope.dataTo}.` : ''}`
-    : `You spent ${inr(b.total)} for ${scope.queryLabel}.${scope.status === 'partial' ? ` Available records are from ${scope.dataFrom} to ${scope.dataTo}; this requested period is partial.` : ' Tap a category to see its transactions.'}`;
+  const summary = scope.countRequested
+    ? matchedCount === 0
+      ? scope.filters.category === "Food & Dining"
+        ? `No food orders found in ${p.label}.${coverageNote}`
+        : `No matching transactions found for ${scope.queryLabel} in ${p.label}.${coverageNote}`
+      : scope.filters.category === "Food & Dining"
+        ? `You ordered food ${matchedCount} time${matchedCount === 1 ? "" : "s"} in ${p.label}.${coverageNote}`
+        : `You had ${matchedCount} matching transactions for ${scope.queryLabel} in ${p.label}.${coverageNote}`
+    : empty
+    ? `No ${scope.filters.merchant ? `${scope.filters.merchant} ` : ""}spend found in ${p.label}.${scope.status === "partial" ? ` Available records are from ${scope.dataFrom} to ${scope.dataTo}.` : ""}`
+    : `You spent ${inr(b.total)} for ${scope.queryLabel}.${scope.status === "partial" ? ` Available records are from ${scope.dataFrom} to ${scope.dataTo}; this requested period is partial.` : " Tap a category to see its transactions."}`;
   return {
     text: summary,
-    ui: { ...base, status: scope.status === 'partial' ? 'partial' : empty ? 'empty' : 'ready', total: b.total, categories: b.categories },
+    ui: {
+      ...base,
+      status:
+        scope.status === "partial" ? "partial" : empty ? "empty" : "ready",
+      total: b.total,
+      ...(matchedCount === undefined ? {} : { matchedCount }),
+      categories: b.categories,
+    },
   };
 }
 
-export function drillDown(ctx: Ctx, category: string, p: Period, filters: { merchant?: string; paymentMode?: string; accountId?: string } = {}): ToolResult {
-  const rows = transactionsFor(ctx.db, p, { category, ...filters, exactMerchant: true });
+export function drillDown(
+  ctx: Ctx,
+  category: string,
+  p: Period,
+  filters: { merchant?: string; paymentMode?: string; accountId?: string } = {},
+): ToolResult {
+  const rows = transactionsFor(ctx.db, p, {
+    category,
+    ...filters,
+    exactMerchant: true,
+  });
   const total = round2(rows.reduce((s, r) => s + r.net_amount, 0));
   return {
     text: `${category} in ${p.label}: ${rows.length} transaction${rows.length === 1 ? "" : "s"} totalling ${inr(total)}.`,
@@ -135,11 +187,17 @@ export function budgetPlan(
 }
 
 // ---------- human-in-the-loop: propose (writes nothing) ----------
-export function proposeBudget(ctx: Ctx, sid: string, category: string, limit: number): ToolResult {
+export function proposeBudget(
+  ctx: Ctx,
+  sid: string,
+  category: string,
+  limit: number,
+): ToolResult {
   const r = budgetPlan(ctx, category, limit);
   if (!r.plan) return r;
   return createPending(ctx, sid, "create_budget", r.plan, {
-    title: "Set monthly budget", confirmLabel: "Save budget",
+    title: "Set monthly budget",
+    confirmLabel: "Save budget",
     lines: [
       { label: "Category", value: category },
       { label: "Monthly limit", value: inr(r.plan.limit) },

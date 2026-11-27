@@ -186,7 +186,7 @@ export function ruleRoute(msg: string, today = DEFAULT_TODAY): Route | null {
     if (c) return { tool: "suggest_budget", args: { category: c } };
   }
   if (
-    /(where did my money go|where.*money.*go|show (?:me )?(?:my )?spending|spending (breakdown|summary)|how much did i spend|how much have i spent|how much i spent|what (?:did|have) i spend|what is (?:the )?(?:total )?(?:money )?i spent|total (?:money )?i spent|breakdown|total money i spent|\bspend(?:ing)?\b|\bspent\b|outgoings)/.test(
+    /(where did my money go|where.*money.*go|show (?:me )?(?:my )?spending|spending (breakdown|summary)|how many\b.{0,40}\b(?:times|orders?|transactions?)|how much did i spend|how much have i spent|how much i spent|what (?:did|have) i spend|what is (?:the )?(?:total )?(?:money )?i spent|total (?:money )?i spent|breakdown|total money i spent|\bspend(?:ing)?\b|\bspent\b|outgoings)/.test(
       m,
     )
   )
