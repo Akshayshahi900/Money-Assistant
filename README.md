@@ -2,6 +2,8 @@
 
 Nance is a prototype money assistant that turns plain-language requests into short answers and interactive, data-backed UI. It uses a synthetic transaction history; it does not connect to banks or provide investment picks.
 
+## Demo Video 
+[Video Link](https://youtu.be/Hynafp-uJ_w)
 ## Try it
 
 Requirements: Docker and Docker Compose.
